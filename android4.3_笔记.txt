@@ -5,5 +5,19 @@ git commit -m "first commit"
 git remote add origin https://github.com/gongmin1000/diary.git
 git push -u origin master
 
+前言、下载android4.3方法
+参看：
+以下使用的目录皆以android4.3源代码根目录为参考根目录
 
-
+一、android的启动过程
+	1、内核启动过程忽略
+	2、init作用
+		init进程相当于linux下的init进程。在android下init负责解释/etc/init.rc脚本，
+	并执行脚本内各个命令。
+二、 SurfaceFlinger 进程
+	1、作用
+	2、代码结构
+	3、启动过程
+	4、
+	
+	
