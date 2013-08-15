@@ -24,7 +24,22 @@ git push -u origin master
 	frameworks/native/services/surfaceflinger/SurfaceFlinger.cpp surfaceflinger 类文件
 
 	frameworks/native/opengl/libs/EGL/eglApi.cpp 的eglGetDisplay 函数返回Display对象
-	eglGetDisplay 调用 egl_init_drivers 调用 frameworks/native/opengl/libs/EGL/egl.cpp  的 egl_init_drivers 
-调用egl_init_drivers_locked 调用 frameworks/native/opengl/libs/EGL/Loader.cpp 的Loader 对象加载opengle驱动.
+	eglGetDisplay 调用 egl_init_drivers 调用 frameworks/native/opengl/libs/EGL/egl.cpp  的 
+	egl_init_drivers 调用egl_init_drivers_locked 调用 
+	frameworks/native/opengl/libs/EGL/Loader.cpp 的Loader 对象加载opengle驱动.
 
-	当surfaceflinger在readyToRun函数内完成启动，并调用startBootAnim函数启动“BootAnim”即闪屏界面	
+	./frameworks/native/opengl/libs/EGL/egl_display.cpp 的egl_display_t::getFromNativeDisplay函数
+	返回显示对象Display
+
+	frameworks/native/services/surfaceflinger/DisplayDevice.cpp 启动surfaceflinger设备文件
+
+	当surfaceflinger在readyToRun函数内完成启动，并调用startBootAnim函数启动“BootAnim”即闪屏界面
+
+三、闪屏界面进程
+	./base/core/res/assets/images/android-logo-shine.png
+	./base/core/res/assets/images/android-logo-mask.png
+	./base/cmds/bootanimation/BootAnimation.cpp:308:    
+			initTexture(&mAndroid[0], mAssets, "images/android-logo-mask.png");
+	BootAnimation::BootAnimation//显示启动logo
+
+
