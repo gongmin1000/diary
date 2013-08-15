@@ -6,7 +6,16 @@
   http://code.google.com/p/ardupilot-mega/wiki/APM2board?wl=zh-Hans
   http://code.google.com/p/arducopter/wiki/ArduCopter?wl=zh-Hans
   https://github.com/diydrones/ardupilot.git
+
+
+nuttx操作系统入口
+./nuttx/arch/arm/src/stm32/stm32_start.c  void __start(void) stm32 入口 
+./nuttx/sched/os_start.c  void os_start(void) 系统入口
+./nuttx/sched/os_bringup.c 119 os_bringup() 启动首个用户线程 CONFIG_USER_ENTRYPOINT 为首个用户进程入口
+
   
+
+px4固件结构分析
   
   ./systemcmds/param/ 包含 param 进程
   ./systemlib/param/param.c param库
