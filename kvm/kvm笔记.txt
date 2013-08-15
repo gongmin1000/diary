@@ -1,0 +1,3 @@
+sudo program/qemu/bin/qemu-system-x86_64 -enable-kvm -boot d -cdrom /home/dongrui/debian-7.1.0-amd64-netinst.iso -drive file=/home/dongrui/vm/debain_kvm_test.img,if=virtio -m 512 -netdev tap,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
+
+

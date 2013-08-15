@@ -1,0 +1,47 @@
+要运行MissionPlanner 先执行下列命令
+  sudo apt-get install mono-runtime libmono-system-windows-forms4.0-cil libmono-system-core4.0-cil libmono-http4.0-cil
+  
+  
+  https://github.com/diydrones
+  http://code.google.com/p/ardupilot-mega/wiki/APM2board?wl=zh-Hans
+  http://code.google.com/p/arducopter/wiki/ArduCopter?wl=zh-Hans
+  https://github.com/diydrones/ardupilot.git
+  
+  
+  ./systemcmds/param/ 包含 param 进程
+  ./systemlib/param/param.c param库
+  
+  
+./src/modules/sensors/sensors.cpp
+接收传感器更新和rc接收机输入，并生成manual_control_setpoint和sensor_combined，并发布rc_channels数据
+./src/modules/attitude_estimator_ekf/attitude_estimator_ekf_main.cpp
+接收sensor_combined和vehicle_status，生成并发布姿态星系vehicle_attitude，
+
+./src/modules/multirotor_att_control/multirotor_att_control_main.c
+接收parameter_update，vehicle_status，manual_control_setpoint，vehicle_attitude，vehicle_attitude_setpoint，sensor_combined等，
+并生成并发布vehicle_attitude_setpoint，vehicle_rates_setpoint，和ORB_ID_VEHICLE_ATTITUDE_CONTROLS动作控制，并完成姿态控制和位置控制
+
+接收来自mavlink的地面站offboard_control_setpoint数据，
+
+
+./src/drivers/px4io/px4io.cpp的676 行 PX4IO::io_set_control_state()
+并想px4io发送可控制数据
+
+ 882 行 PX4IO::io_get_status() 发布从PXIO板获得的电源状态 
+ 
+./src/modules/px4iofirmware/controls.c 调用mixer_tick()完成混合
+
+./src/modules/px4iofirmware/mixer.cpp混合代码，并在198行用up_pwm_servo_set输出舵机
+
+
+
+
+
+src/modules/commander/commander.c
+101行定义姿态目标值PARAM_DEFINE_FLOAT(TRIM_ROLL, 0.0f)
+1134行提供电池电量估算函数 float battery_remaining_estimate_voltage(float voltage),可在初始化是加电池节数估算函数
+1564行发布电池状态，包括电压、电流、剩余电量，并有ORB_ID(vehicle_status)向全系统发布
+
+
+
+

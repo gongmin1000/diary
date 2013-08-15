@@ -1,0 +1,12 @@
+google.cm ,github,gooele app, openshift,
+python,android develop,google code,
+youtube,gmail,sourceforge.net ,
+google chrome dev,redhat.com,
+
+
+编译方法
+ubuntu安装依赖下列包
+libatomic-ops-dev libedit-dev libsnappy-dev libleveldb-dev libaio-dev 
+配置命令
+./configure --prefix=/home/dongrui/program/ --enable-cephfs-java --with-jdk-dir=/usr/lib/jvm/java-7-openjdk-amd64/bin
+
