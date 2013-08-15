@@ -1,0 +1,15 @@
+cpio  -idmv  < ../boot.img-ramdisk
+
+http://blog.csdn.net/urecvbnkuhbh_54245df/article/details/6218266
+http://blog.csdn.net/yangxinle137/article/details/6228408
+
+制作android的ramdisk.img
+find ./| cpio -o -H newc | gzip > ../newramdisk.cpio.gz
+
+mkbootimg  --kernel boot.img-kernel --ramdisk newramdisk.cpio.gz -o boot.img
+
+制作android的system.img
+./bin/make_ext4fs -s -l 268435456 -a <卷名> system.img <内容目录名>
+./bin/make_ext4fs -s -l 268435456 -a system system.img ./system
+
+
