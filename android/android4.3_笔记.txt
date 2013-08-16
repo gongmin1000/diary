@@ -29,7 +29,7 @@ git push -u origin master
 	frameworks/native/opengl/libs/EGL/Loader.cpp 的Loader 对象加载opengle驱动.
 
 	./frameworks/native/opengl/libs/EGL/egl_display.cpp 的egl_display_t::getFromNativeDisplay函数
-	返回显示对象Display
+	返回显示对象Display,Display对象其实就是一个整型，定义在egl_display.cpp内一个数组内
 
 	frameworks/native/services/surfaceflinger/DisplayDevice.cpp 启动surfaceflinger设备文件
 
