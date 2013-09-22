@@ -1,3 +1,4 @@
-sudo program/qemu/bin/qemu-system-x86_64 -enable-kvm -boot d -cdrom /home/dongrui/debian-7.1.0-amd64-netinst.iso -drive file=/home/dongrui/vm/debain_kvm_test.img,if=virtio -m 512 -netdev tap,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
+sudo /home/dongrui/program/qemu/bin/qemu-system-x86_64 -enable-kvm -boot d  -drive file=/home/dongrui/vm/debain_kvm_test.img,if=virtio -m 512 -netdev tap,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56 -vga qxl -spice port=5900,addr=127.0.0.1,disable-ticketing
+spicec -h 127.0.0.1 -p 5900
 
-
+kvm允许过载使用(overcommit)，但在实际生产环境中不推荐使用
