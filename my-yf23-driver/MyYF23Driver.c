@@ -98,7 +98,7 @@ static struct usb_class_driver MyYF23_class = {
 
 static int MyYF23_probe(struct usb_interface *interface, const struct usb_device_id *id)
 {
-	int i;
+	int i,ret;
 	struct usb_host_interface *iface_desc;
 	struct usb_endpoint_descriptor *endpoint;
 	
@@ -125,11 +125,27 @@ static int MyYF23_probe(struct usb_interface *interface, const struct usb_device
 	usb_set_intfdata(interface, dev);
 	
 
+	ret = usb_register_dev(interface,&MyYF23_class);
+	if( ret ){
+		printk("Not able to get a minor for this device.");
+		usb_set_intfdata(interface, NULL);
+		goto usb_register_dev_err;
+	}
+	printk("MyYF23 init ok\n");
 	return 0;
+usb_register_dev_err:
+	kfree(dev);
+	return ret;
 }
 
 static void MyYF23_disconnect(struct usb_interface *interface)
 {
+	struct MyYF23Dev* dev = NULL;
+	dev = usb_get_intfdata(interface);
+	usb_set_intfdata(interface,NULL);
+	if( dev != NULL ){
+		kfree(dev);
+	}
 }
 
 
