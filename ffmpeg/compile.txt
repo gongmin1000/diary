@@ -1,0 +1,65 @@
+夸平台编译
+mingw平台
+安装 g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+
+./configure --prefix=/home/dongrui/program/winffmpeg  --enable-cross-compile --target-os=mingw32 --host-os=linux --arch=x86_64 --cc=x86_64-w64-mingw32-gcc --cxx=x86_64-w64-mingw32-g++ --ld=x86_64-w64-mingw32-gcc --disable-w32threads 
+
+
+
+android编译
+工具连：android-ndk-r9
+export PATH=$PATH:/home/dongrui/android/android-ndk-r9/toolchains/arm-linux-androideabi-4.6/prebuilt/linux-x86_64/bin
+
+改strip_default为arm-linux-androideabi-strip
+
+./configure --prefix=/home/dongrui/program/android_ffmpeg  --enable-cross-compile --target-os=linux --host-os=linux --arch=arm --cc=arm-linux-androideabi-gcc --cxx=arm-linux-androideabi-g++ --ld=arm-linux-androideabi-ld --sysroot="/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm" --extra-cflags="-I/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm/usr/include" --extra-ldflags="-L/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm/usr/lib -L/home/dongrui/android/android-ndk-r9/toolchains/arm-linux-androideabi-4.6/prebuilt/linux-x86_64/lib/gcc/arm-linux-androideabi/4.6/" --extra-libs="-lc -lm -lgcc"
+
+
+
+当编译器是4.8时
+export PATH=$PATH:/home/dongrui/android/android-ndk-r9/toolchains/arm-linux-androideabi-4.8/prebuilt/linux-x86_64/bin
+
+改strip_default为arm-linux-androideabi-strip
+
+./configure --prefix=/home/dongrui/program/android_ffmpeg  --enable-cross-compile --target-os=linux --host-os=linux --arch=arm --cc=arm-linux-androideabi-gcc --cxx=arm-linux-androideabi-g++ --ld=arm-linux-androideabi-ld --sysroot="/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm" --extra-cflags="-I/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm/usr/include" --extra-ldflags="-L/home/dongrui/android/android-ndk-r9/platforms/android-18/arch-arm/usr/lib -L/home/dongrui/android/android-ndk-r9/toolchains/arm-linux-androideabi-4.8/prebuilt/linux-x86_64/lib/gcc/arm-linux-androideabi/4.8/" --extra-libs="-lc -lm -lgcc"
+
+
+--extra-libs扩展库增加在这里
+
+
+
+
+
+
+
+
+
+ 
+
+工具连：android-ndk-r8-crystax-1
+export PATH=$PATH:/home/dongrui/android/android-ndk-r8-crystax-1/toolchains/arm-linux-androideabi-4.6/prebuilt/linux-x86_64/bin
+
+改strip_default为arm-linux-androideabi-strip
+
+./configure --prefix=/home/dongrui/program/android_ffmpeg  --enable-cross-compile --target-os=linux --host-os=linux --arch=arm --cc=arm-linux-androideabi-gcc --cxx=arm-linux-androideabi-g++ --ld=arm-linux-androideabi-ld --sysroot="/home/dongrui/android/android-ndk-r8-crystax-1/platforms/android-14/arch-arm" --extra-cflags="-I/home/dongrui/android/android-ndk-r8-crystax-1/platforms/android-14/arch-arm/usr/include" --extra-ldflags="-L/home/dongrui/android/android-ndk-r8-crystax-1/platforms/android-14/arch-arm/usr/lib -L/home/dongrui/android/android-ndk-r8-crystax-1/toolchains/arm-linux-androideabi-4.6/prebuilt/linux-x86_64/lib/gcc/arm-linux-androideabi/4.6/" --extra-libs="-lc -lm -lgcc"
+
+
+
+px4锁定
+ Ze (174418547)  12:31:16
+能给我介绍一下那个安全开关的用法吗
+没见到有任何说明
+极速捕风(3884759)  12:53:48
+开关就2种用法
+升级io时候，先按下再上电
+极速捕风(3884759)  12:54:52
+普通时候，弹起状态上电，自检后按下就是ARM
+然后就是灯闪烁情况可以参考
+具体闪烁规律自己观察，啊哈哈哈
+   Ze (174418547)  12:56:11
+解锁不是还要通过YAW向右掰5秒吗
+极速捕风(3884759)  13:01:07
+油门也到底
+   Ze (174418547)  13:05:47
+嗯嗯
+
