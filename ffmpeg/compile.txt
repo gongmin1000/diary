@@ -1,6 +1,6 @@
 夸平台编译
 mingw平台
-安装 g++-mingw-w64-x86-64 gcc-mingw-w64-x86-64
+安装 x86_64-w64-mingw32-g++ x86_64-w64-mingw32-gcc
 
 ./configure --prefix=/home/dongrui/program/winffmpeg  --enable-cross-compile --target-os=mingw32 --host-os=linux --arch=x86_64 --cc=x86_64-w64-mingw32-gcc --cxx=x86_64-w64-mingw32-g++ --ld=x86_64-w64-mingw32-gcc --disable-w32threads 
 
