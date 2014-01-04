@@ -1,3 +1,10 @@
+qemu编译参数
+./configure --prefix=/home/dongrui/program/qemu --enable-sdl --enable-spice --enable-rbd --enable-linux-aio --enable-libusb --enable-usb-redir --enable-libssh2  --enable-kvm --enable-vhost-net --extra-cflags="-I/home/dongrui/program/ceph/include -I" --extra-ldflags="-L/home/dongrui/program/ceph/lib"
+
+
+sudo program/qemu/bin/qemu-system-x86_64 -enable-kvm -boot d -cdrom /home/dongrui/debian-7.1.0-amd64-netinst.iso -drive file=/home/dongrui/vm/debain_kvm_test.img,if=virtio -m 512 -netdev tap,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56
+
+
 sudo /home/dongrui/program/qemu/bin/qemu-system-x86_64 -enable-kvm -cpu host -smp 2 -m 512 -boot d  -drive file=/home/dongrui/vm/debain_kvm_test.img,if=virtio -netdev tap,id=net0 -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56 -vga qxl -spice port=5900,addr=127.0.0.1,disable-ticketing -soundhw hda -usb
 
 spicec -h 127.0.0.1 -p 5900
