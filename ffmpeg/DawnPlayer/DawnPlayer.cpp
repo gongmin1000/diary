@@ -49,11 +49,11 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
-  pFormatCtx(NULL),pFrame(NULL),
+  pFormatCtx(NULL),_VideoFrame(NULL),pFrameRGB(NULL),
   _videoCodecCtx(NULL),_videoCodec(NULL),
   _audioCodecCtx(NULL),_audioCodec(NULL),
   _subtitleCodecCtx(NULL),_subtitleCodec(NULL),
-  pFrameRGB(NULL),buffer(NULL),
+  buffer(NULL),_AudioFrame(NULL),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -66,8 +66,11 @@ DawnPlayer::~DawnPlayer(){
   if(pFrameRGB)
     av_free(pFrameRGB);
 
-  if(pFrame)
-    av_free(pFrame);
+  if(_VideoFrame)
+    av_free(_VideoFrame);
+
+  if(_AudioFrame)
+    av_free(_AudioFrame);
 
   if(_videoCodecCtx)
     avcodec_close(_videoCodecCtx);
@@ -76,8 +79,21 @@ DawnPlayer::~DawnPlayer(){
     avformat_close_input(&pFormatCtx);
 }
 
+int DawnPlayer::DecodeInterruptCB(void *ctx){
+  DawnPlayer *dp = (DawnPlayer*)ctx;
+  //printf("DecodeInterrupt CallBack\n");
+  return 0;
+}
+
 bool DawnPlayer::Init(char* Path){
   printf("Path = %s\n",Path);
+  pFormatCtx = avformat_alloc_context();
+  if( !pFormatCtx ){
+    return false;
+  }
+  pFormatCtx->interrupt_callback.callback = DawnPlayer::DecodeInterruptCB;
+  pFormatCtx->interrupt_callback.opaque = this;
+
   if( avformat_open_input(&pFormatCtx, Path, NULL, NULL) != 0 ){
     return false;
   }
@@ -127,9 +143,9 @@ bool DawnPlayer::Init(char* Path){
     }
   }
 
-  pFrame = avcodec_alloc_frame();
+  _VideoFrame = avcodec_alloc_frame();
 
-  if( pFrame == NULL ){
+  if( _VideoFrame == NULL ){
     return false;
   }
 
@@ -169,6 +185,12 @@ bool DawnPlayer::Init(char* Path){
     if (avcodec_open2(_audioCodecCtx, _audioCodec, NULL) < 0){
       return false;
     }
+    _AudioFrame = avcodec_alloc_frame();
+
+    if( _AudioFrame == NULL ){
+      return false;
+    }
+
   }
   
   //初始化字幕解码器
@@ -193,7 +215,8 @@ bool DawnPlayer::Init(char* Path){
 
 void DawnPlayer::VideoDecode(){
   int ret = 0;
-  ret = avcodec_decode_video2(_videoCodecCtx, pFrame, &frameFinished, &packet);
+  avcodec_get_frame_defaults(_VideoFrame);
+  ret = avcodec_decode_video2(_videoCodecCtx, _VideoFrame, &frameFinished, &packet);
   if( ret < 0 ){
     printf("avcodec_decode_video2 error ret = %d\n",ret);
   }
@@ -220,25 +243,26 @@ void DawnPlayer::VideoDecode(){
       
     }
 
-    sws_scale(img_convert_ctx, (const uint8_t* const*)pFrame->data,
-	      pFrame->linesize, 0, _videoCodecCtx->height, 
+    sws_scale(img_convert_ctx, (const uint8_t* const*)_VideoFrame->data,
+	      _VideoFrame->linesize, 0, _videoCodecCtx->height, 
 	      pFrameRGB->data,pFrameRGB->linesize);
 
-    //if( frame_index++ < 50 ){
+    //if( vframe_index++ < 50 ){
       vframe_index++;
-      //SaveFrame(pFrameRGB, _videoCodecCtx->width, _videoCodecCtx->height, frame_index);
+      //SaveFrame(pFrameRGB, _videoCodecCtx->width, _videoCodecCtx->height, vframe_index);
     //}
   }
 }
 
 void DawnPlayer::AudioDecode(){
   int ret = 0;
-  ret = avcodec_decode_audio4(_audioCodecCtx, pFrame, &frameFinished, &packet);
+  avcodec_get_frame_defaults(_VideoFrame);
+  ret = avcodec_decode_audio4(_audioCodecCtx, _AudioFrame, &frameFinished, &packet);
   if ( ret < 0) {
     // if error, we skip the frame 
     packet.size = 0;
   }
-  else{
+  if( frameFinished ){
     aframe_index++;
     
   }
@@ -249,7 +273,9 @@ void DawnPlayer::SubtitleDecode(){
   AVSubtitle sub;
   avcodec_decode_subtitle2(_subtitleCodecCtx, &sub,&frameFinished, &packet);
   avsubtitle_free(&sub);
-  sframe_index++;
+  if( frameFinished ){
+    sframe_index++;
+  }
 }
 
 void DawnPlayer::Run(){
@@ -271,7 +297,6 @@ void DawnPlayer::Run(){
       continue;
     }
     
-    avcodec_get_frame_defaults(pFrame);
     //printf("packet.stream_index = %d\n",packet.stream_index);
     
     if( _videoCodecCtx && packet.stream_index == videoStream ) {
@@ -312,12 +337,13 @@ int main(int argc,char* argv[]){
   av_register_all();
   
   
-  for(int i = 0 ; i < 100 ; i++ ){
+  for(int i = 0 ; i < 1 ; i++ ){
     /*if( player ){
       delete player;
     }*/
     player = new DawnPlayer();
-    sprintf(buf,"%s%d%s","/home/dongrui/test",1,".avi");
+    //sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
+    sprintf(buf,"%s%s","/home/dongrui/","7907.flv");
     if( !player->Init(buf) ){
       return 0;
       

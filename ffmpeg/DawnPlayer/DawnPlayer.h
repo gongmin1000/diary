@@ -25,15 +25,19 @@ protected:
   void AudioDecode();
   void SubtitleDecode();
 private:
+  static int DecodeInterruptCB(void *ctx);
   AVFormatContext *pFormatCtx;
   
   int             videoStream;
   AVCodecContext  *_videoCodecCtx;
   AVCodec         *_videoCodec;
+  AVFrame         *_VideoFrame;
+  AVFrame         *pFrameRGB;
   
   int             audioStream;
   AVCodecContext  *_audioCodecCtx;
   AVCodec         *_audioCodec;
+  AVFrame         *_AudioFrame;
   
   
   int             subtitleStream;
@@ -41,9 +45,6 @@ private:
   AVCodec         *_subtitleCodec;
   
 
-  AVFrame         *pFrame;
-
-  AVFrame         *pFrameRGB;
 
   AVPacket        packet;
 
