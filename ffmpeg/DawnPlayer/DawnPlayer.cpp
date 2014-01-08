@@ -160,31 +160,31 @@ bool DawnPlayer::Init(char* Path){
     if( avcodec_open2(_videoCodecCtx, _videoCodec, NULL) < 0 ){
       return false;
     }
-  }
-
-  _VideoFrame = avcodec_alloc_frame();
-
-  if( _VideoFrame == NULL ){
-    return false;
-  }
-
-  pFrameRGB = avcodec_alloc_frame();
-
-  if( pFrameRGB == NULL ){
-
-    return false;
-  }
   
-  numBytes = avpicture_get_size(PIX_FMT_RGB24, 
+
+    _VideoFrame = avcodec_alloc_frame();
+
+    if( _VideoFrame == NULL ){
+      return false;
+    }
+
+    pFrameRGB = avcodec_alloc_frame();
+
+    if( pFrameRGB == NULL ){
+
+      return false;
+    }
+  
+    numBytes = avpicture_get_size(PIX_FMT_RGB24, 
 				  _videoCodecCtx->width,
 				  _videoCodecCtx->height);
   
-  buffer = (uint8_t*)av_malloc(numBytes);
+    buffer = (uint8_t*)av_malloc(numBytes);
 
-  avpicture_fill( (AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24,
-
+    avpicture_fill( (AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24,
           _videoCodecCtx->width, _videoCodecCtx->height);
   
+  }
   
   //初始化音频解码器
   if( _audioStream == -1 ){
@@ -396,16 +396,18 @@ int main(int argc,char* argv[]){
       delete player;
     }*/
     player = new DawnPlayer();
-    sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
+    sprintf(buf,"%s",argv[1]);
+    //sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
     //sprintf(buf,"%s%s","/home/dongrui/","7907.flv");//PA_SAMPLE_S16NE
     //sprintf(buf,"%s%s","/home/dongrui/","晓松说.ts");//PA_SAMPLE_FLOAT32LE
     if( !player->Init(buf) ){
       return 0;
       
     }
+    
     //sleep(10);
     player->GetAudioParameter(&parameter);
-    ss.format = PA_SAMPLE_S16BE;//PA_SAMPLE_FLOAT32LE;//PA_SAMPLE_S16NE;
+    ss.format = PA_SAMPLE_S16NE;//PA_SAMPLE_S16BE;//PA_SAMPLE_FLOAT32LE;//;
     ss.channels = parameter._channels;
     ss.rate = parameter._sample_rate;
     s = pa_simple_new(NULL,               // Use the default server.
