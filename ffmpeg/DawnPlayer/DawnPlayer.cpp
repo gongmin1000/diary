@@ -1,5 +1,5 @@
 //g++ -g -o DawnPlayer -D__STDC_CONSTANT_MACROS   DawnPlayer.cpp -I/home/dongrui/program/ffmpeg/include -L/home/dongrui/program/ffmpeg/lib   -lavformat -lavcodec  -lavdevice  -lavfilter  -lavutil  -lswresample  -lswscale -lz -lpthread -lboost_thread-mt -lSDL
-//-fpermissive
+//-fpermissive /usr/lib/x86_64-linux-gnu/libpulse-simple.so /usr/lib/x86_64-linux-gnu/libpulse.so
 #include "DawnPlayer.h"
 static void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame)
 
@@ -49,11 +49,12 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
-  pFormatCtx(NULL),_VideoFrame(NULL),pFrameRGB(NULL),
+  _FormatCtx(NULL),_VideoFrame(NULL),pFrameRGB(NULL),
   _videoCodecCtx(NULL),_videoCodec(NULL),
   _audioCodecCtx(NULL),_audioCodec(NULL),
   _subtitleCodecCtx(NULL),_subtitleCodec(NULL),
   buffer(NULL),_AudioFrame(NULL),
+  _AudioCallBack(NULL),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -75,8 +76,8 @@ DawnPlayer::~DawnPlayer(){
   if(_videoCodecCtx)
     avcodec_close(_videoCodecCtx);
 
-  if(pFormatCtx)
-    avformat_close_input(&pFormatCtx);
+  if(_FormatCtx)
+    avformat_close_input(&_FormatCtx);
 }
 
 int DawnPlayer::DecodeInterruptCB(void *ctx){
@@ -85,51 +86,69 @@ int DawnPlayer::DecodeInterruptCB(void *ctx){
   return 0;
 }
 
+void DawnPlayer::GetAudioParameter(AudioParameter* parameter)
+{
+	if( !_audioCodecCtx ){
+		return ;
+	}
+	parameter->_channels = _audioCodecCtx->channels;
+	parameter->_sample_rate = _audioCodecCtx->sample_rate;
+	parameter->_channel_layout = _audioCodecCtx->channel_layout;
+	//parameter->_fmt = _audioCodecCtx->;
+}
+
+
+void DawnPlayer::SetAudioCallBack(void* data,AudioCallBack callback)
+{
+  _AudioCallBack = callback;
+  _AudioCallBackData = data;
+}
+
 bool DawnPlayer::Init(char* Path){
   printf("Path = %s\n",Path);
-  pFormatCtx = avformat_alloc_context();
-  if( !pFormatCtx ){
+  _FormatCtx = avformat_alloc_context();
+  if( !_FormatCtx ){
     return false;
   }
-  pFormatCtx->interrupt_callback.callback = DawnPlayer::DecodeInterruptCB;
-  pFormatCtx->interrupt_callback.opaque = this;
+  _FormatCtx->interrupt_callback.callback = DawnPlayer::DecodeInterruptCB;
+  _FormatCtx->interrupt_callback.opaque = this;
 
-  if( avformat_open_input(&pFormatCtx, Path, NULL, NULL) != 0 ){
+  if( avformat_open_input(&_FormatCtx, Path, NULL, NULL) != 0 ){
     return false;
   }
 
-  if( avformat_find_stream_info(pFormatCtx, NULL ) < 0 ){
+  if( avformat_find_stream_info(_FormatCtx, NULL ) < 0 ){
     return false;
   }
   
-  av_dump_format(pFormatCtx, -1, Path, 0);
+  av_dump_format(_FormatCtx, -1, Path, 0);
 
-  videoStream = -1;
-  audioStream = -1;
-  subtitleStream = -1;
+  _videoStream = -1;
+  _audioStream = -1;
+  _subtitleStream = -1;
 
-  for( int i = 0; i < pFormatCtx->nb_streams; i++ ){
+  for( int i = 0; i < _FormatCtx->nb_streams; i++ ){
 
-    switch( pFormatCtx->streams[i]->codec->codec_type){
+    switch( _FormatCtx->streams[i]->codec->codec_type){
       case AVMEDIA_TYPE_VIDEO:
-	videoStream = i;
+	_videoStream = i;
 	break;
       case AVMEDIA_TYPE_AUDIO:
-	audioStream = i;
+	_audioStream = i;
 	break;
       case AVMEDIA_TYPE_SUBTITLE:
-	subtitleStream = i;
+	_subtitleStream = i;
 	break;
     }
   }
 
-  if( videoStream == -1 ){
+  if( _videoStream == -1 ){
     printf("没有发现视频流\n");
     //return false;
   }
   else{
     //初始化视频解码器
-    _videoCodecCtx = pFormatCtx->streams[videoStream]->codec;
+    _videoCodecCtx = _FormatCtx->streams[_videoStream]->codec;
 
     _videoCodec = avcodec_find_decoder(_videoCodecCtx->codec_id);
 
@@ -168,12 +187,12 @@ bool DawnPlayer::Init(char* Path){
   
   
   //初始化音频解码器
-  if( audioStream == -1 ){
+  if( _audioStream == -1 ){
     printf("没有发现音频流\n");
     //return false;
   }
   else{
-    _audioCodecCtx = pFormatCtx->streams[audioStream]->codec;
+    _audioCodecCtx = _FormatCtx->streams[_audioStream]->codec;
 
     _audioCodec = avcodec_find_decoder(_audioCodecCtx->codec_id);
     
@@ -194,12 +213,12 @@ bool DawnPlayer::Init(char* Path){
   }
   
   //初始化字幕解码器
-  if( subtitleStream == -1){
+  if( _subtitleStream == -1){
     printf("没有发现字幕流\n");
     //return false;
   }
   else{
-    _subtitleCodecCtx = pFormatCtx->streams[subtitleStream]->codec;
+    _subtitleCodecCtx = _FormatCtx->streams[_subtitleStream]->codec;
 
     _subtitleCodec = avcodec_find_decoder(_subtitleCodecCtx->codec_id);
     if( _subtitleCodec == NULL ){
@@ -208,7 +227,7 @@ bool DawnPlayer::Init(char* Path){
     }
   }
   
-  _thr = boost::thread(boost::bind(&DawnPlayer::Run,this));
+  //_thr = boost::thread(boost::bind(&DawnPlayer::Run,this));
 
   return true;
 }
@@ -256,15 +275,36 @@ void DawnPlayer::VideoDecode(){
 
 void DawnPlayer::AudioDecode(){
   int ret = 0;
-  avcodec_get_frame_defaults(_VideoFrame);
-  ret = avcodec_decode_audio4(_audioCodecCtx, _AudioFrame, &frameFinished, &packet);
-  if ( ret < 0) {
-    // if error, we skip the frame 
-    packet.size = 0;
-  }
-  if( frameFinished ){
-    aframe_index++;
+  while( packet.stream_index != -1 ){
+    avcodec_get_frame_defaults(_AudioFrame);
+    ret = avcodec_decode_audio4(_audioCodecCtx, _AudioFrame, &frameFinished, &packet);
+    if ( ret < 0) {
+      // if error, we skip the frame 
+      packet.size = 0;
+      return;
+    }
+    if( frameFinished ){
+      aframe_index++;
     
+      if( !_AudioCallBack ){
+        return;
+      }
+      else{
+	int data_size = av_samples_get_buffer_size(NULL, av_frame_get_channels(_AudioFrame),
+                                                    _AudioFrame->nb_samples,
+                                                    (AVSampleFormat)_AudioFrame->format, 1);
+	printf("data_size = %d\n",data_size);
+        _AudioCallBack(_AudioCallBackData,_AudioFrame->data[0],data_size);
+        printf("format = %d\n",_AudioFrame->format);
+      }
+    }
+    packet.dts =
+    packet.pts = AV_NOPTS_VALUE;
+    packet.data += ret;
+    packet.size -= ret;
+    if (packet.data && packet.size <= 0 || !packet.data && !frameFinished ){
+	packet.stream_index = -1;
+    }
   }
 }
 
@@ -283,10 +323,10 @@ void DawnPlayer::Run(){
   int eof = 0;
 
   while( 1 ) {
-    ret = av_read_frame(pFormatCtx, &packet);
+    ret = av_read_frame(_FormatCtx, &packet);
     if (ret < 0) {
       print_error(NULL,ret);
-      if (ret == AVERROR_EOF || url_feof(pFormatCtx->pb)){
+      if (ret == AVERROR_EOF || url_feof(_FormatCtx->pb)){
 	eof = 1;
 	break;
 	
@@ -299,13 +339,13 @@ void DawnPlayer::Run(){
     
     //printf("packet.stream_index = %d\n",packet.stream_index);
     
-    if( _videoCodecCtx && packet.stream_index == videoStream ) {
+    if( _videoCodecCtx && packet.stream_index == _videoStream ) {
       VideoDecode();
     }
-    else if( _audioCodecCtx && packet.stream_index == audioStream ){
+    else if( _audioCodecCtx && packet.stream_index == _audioStream ){
       AudioDecode();
     }
-    else if( _subtitleCodecCtx && packet.stream_index == subtitleStream ){
+    else if( _subtitleCodecCtx && packet.stream_index == _subtitleStream ){
       SubtitleDecode();
     }
 
@@ -330,26 +370,65 @@ void DawnPlayer::Run(){
 }
 
 
+#include <pulse/simple.h>
+#include <pulse/error.h>
+void AudioPlay(void* prv_data,unsigned char* buf,int len){
+	int error;
+	if (pa_simple_write((pa_simple*)prv_data, buf, (size_t) len, &error) < 0) {
+            printf("pa_simple_write() failed: %s\n", pa_strerror(error));
+            return ;
+        }	
+}
+
 
 int main(int argc,char* argv[]){
   char buf[1024];
+  AudioParameter parameter;
   DawnPlayer *player = NULL;
   av_register_all();
-  
-  
+
+  int error;
+  pa_simple *s;
+  pa_sample_spec ss;
+ 
   for(int i = 0 ; i < 1 ; i++ ){
     /*if( player ){
       delete player;
     }*/
     player = new DawnPlayer();
-    //sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
-    sprintf(buf,"%s%s","/home/dongrui/","7907.flv");
+    sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
+    //sprintf(buf,"%s%s","/home/dongrui/","7907.flv");//PA_SAMPLE_S16NE
+    //sprintf(buf,"%s%s","/home/dongrui/","晓松说.ts");//PA_SAMPLE_FLOAT32LE
     if( !player->Init(buf) ){
       return 0;
       
     }
-    sleep(10);
-    //player->Run();
+    //sleep(10);
+    player->GetAudioParameter(&parameter);
+    ss.format = PA_SAMPLE_S16BE;//PA_SAMPLE_FLOAT32LE;//PA_SAMPLE_S16NE;
+    ss.channels = parameter._channels;
+    ss.rate = parameter._sample_rate;
+    s = pa_simple_new(NULL,               // Use the default server.
+                  argv[0],           // Our application's name.
+                  PA_STREAM_PLAYBACK,
+                  NULL,               // Use the default device.
+                  "Audio",            // Description of our stream.
+                  &ss,                // Our sample format.
+                  NULL,               // Use default channel map
+                  NULL,               // Use default buffering attributes.
+                  &error               // Ignore error code.
+                  );
+
+    if( !s ){
+      printf("error pulseaudio = %s\n",pa_strerror(error));
+      return 0;
+    }
+    player->SetAudioCallBack(s,AudioPlay);
+    player->Run();
+    if (s){
+        pa_simple_free(s); 
+    }
   }
   player->_thr.join();
+ 
 }
