@@ -14,7 +14,13 @@ extern "C"{
 #include <libswscale/swscale.h>
 }
 typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
-/*enum SampleFormat {
+enum {
+	SYNC_AUDIO_MASTER, /* default choice */
+	SYNC_VIDEO_MASTER,
+	SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
+};
+
+enum SampleFormat {
 	SAMPLE_FMT_NONE = -1,
 	SAMPLE_FMT_U8,          ///< unsigned 8 bits
 	SAMPLE_FMT_S16,         ///< signed 16 bits
@@ -28,15 +34,14 @@ typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
 	SAMPLE_FMT_FLTP,        ///< float, planar
 	SAMPLE_FMT_DBLP,        ///< double, planar
 
-	AV_SAMPLE_FMT_NB           ///< Number of sample formats. DO NOT USE if linking dynamically
-};*/
+	SAMPLE_FMT_NB           ///< Number of sample formats. DO NOT USE if linking dynamically
+};
 
 struct AudioParameter{
-	//int _freq;
 	int _channels;
 	int _sample_rate;
 	int64_t _channel_layout;
-	//enum SampleFormat _fmt;
+	enum SampleFormat _fmt;
 
 };
 
@@ -56,6 +61,7 @@ private:
   static int DecodeInterruptCB(void *ctx);
   AudioCallBack   _AudioCallBack;
   void            *_AudioCallBackData;
+  void AudioConvert(unsigned char** buf,int &len);
 
 
   AVFormatContext *_FormatCtx;
@@ -65,11 +71,19 @@ private:
   AVCodec         *_videoCodec;
   AVFrame         *_VideoFrame;
   AVFrame         *pFrameRGB;
-  
+ 
+  int SynchronizeAudio(int nb_samples);
   int             _audioStream;
   AVCodecContext  *_audioCodecCtx;
   AVCodec         *_audioCodec;
   AVFrame         *_AudioFrame;
+  AudioParameter  _AudioParameterSrc;
+  AudioParameter  _AudioTgt;
+  SwrContext      *_SwrCtx;
+  unsigned char   *_AudioSwrBuf;
+  unsigned int    _AudioSwrBufSize;
+  /*unsigned char   *_AudioOutBuf;
+  unsigned int    _AudioOutBufSize;*/
   
   
   int             _subtitleStream;

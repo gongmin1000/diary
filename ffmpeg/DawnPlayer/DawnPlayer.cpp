@@ -95,6 +95,10 @@ void DawnPlayer::GetAudioParameter(AudioParameter* parameter)
 	parameter->_sample_rate = _audioCodecCtx->sample_rate;
 	parameter->_channel_layout = _audioCodecCtx->channel_layout;
 	//parameter->_fmt = _audioCodecCtx->;
+	_AudioTgt._channels = _audioCodecCtx->channels;
+	_AudioTgt._sample_rate = _audioCodecCtx->sample_rate;
+	_AudioTgt._channel_layout = _audioCodecCtx->channel_layout;
+	_AudioTgt._fmt = SAMPLE_FMT_S16;
 }
 
 
@@ -120,7 +124,24 @@ bool DawnPlayer::Init(char* Path){
   if( avformat_find_stream_info(_FormatCtx, NULL ) < 0 ){
     return false;
   }
-  
+  /*_audioStream =
+            av_find_best_stream(_FormatCtx, AVMEDIA_TYPE_AUDIO,
+                                -1,
+                                _audioStream,
+                                NULL, 0);
+  _videoStream =
+            av_find_best_stream(_FormatCtx, AVMEDIA_TYPE_AUDIO,
+                                -1,
+                                _videoStream,
+                                NULL, 0); 
+  _subtitleStream =
+	    av_find_best_stream(_FormatCtx, AVMEDIA_TYPE_SUBTITLE,
+                                -1,
+                                (_audioStream >= 0 ?
+                                _audioStream :
+                                _videoStream ),
+                                NULL, 0);*/
+
   av_dump_format(_FormatCtx, -1, Path, 0);
 
   _videoStream = -1;
@@ -273,6 +294,139 @@ void DawnPlayer::VideoDecode(){
   }
 }
 
+/* return the wanted number of samples to get better sync if sync_type is video
+ * or external master clock */
+int DawnPlayer::SynchronizeAudio(int nb_samples)
+{
+    int wanted_nb_samples = nb_samples;
+
+    // if not master, then we try to remove or add samples to correct the clock 
+    /*if (get_master_sync_type(is) != AV_SYNC_AUDIO_MASTER) {
+        double diff, avg_diff;
+        int min_nb_samples, max_nb_samples;
+
+        diff = get_clock(&is->audclk) - get_master_clock(is);
+
+        if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD) {
+            is->audio_diff_cum = diff + is->audio_diff_avg_coef * is->audio_diff_cum;
+            if (is->audio_diff_avg_count < AUDIO_DIFF_AVG_NB) {
+                //not enough measures to have a correct estimate
+                is->audio_diff_avg_count++;
+            } else {
+                //estimate the A-V difference 
+                avg_diff = is->audio_diff_cum * (1.0 - is->audio_diff_avg_coef);
+
+                if (fabs(avg_diff) >= is->audio_diff_threshold) {
+                    wanted_nb_samples = nb_samples + (int)(diff * is->audio_src.freq);
+                    min_nb_samples = ((nb_samples * (100 - SAMPLE_CORRECTION_PERCENT_MAX) / 100));
+                    max_nb_samples = ((nb_samples * (100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100));
+                    wanted_nb_samples = FFMIN(FFMAX(wanted_nb_samples, min_nb_samples), max_nb_samples);
+                }
+                av_dlog(NULL, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
+                        diff, avg_diff, wanted_nb_samples - nb_samples,
+                        is->audio_clock, is->audio_diff_threshold);
+            }
+        } else {
+            //too big difference : may be initial PTS errors, so reset A-V filter 
+            is->audio_diff_avg_count = 0;
+            is->audio_diff_cum       = 0;
+        }
+    }*/
+
+    return wanted_nb_samples;
+}
+
+void DawnPlayer::AudioConvert(unsigned char** buf,int &len)
+{
+/*
+*将流内解压后的音频转化成音频设备可识别格式
+*/
+   int64_t dec_channel_layout;
+   int wanted_nb_samples;
+   int resampled_data_size;
+   dec_channel_layout =
+          (_AudioFrame->channel_layout && av_frame_get_channels(_AudioFrame) 
+		== av_get_channel_layout_nb_channels(_AudioFrame->channel_layout)) 
+		? _AudioFrame->channel_layout 
+		: av_get_default_channel_layout(av_frame_get_channels(_AudioFrame));
+   printf("_AudioFrame->nb_samples = %d\n",_AudioFrame->nb_samples);
+   wanted_nb_samples = SynchronizeAudio(_AudioFrame->nb_samples);
+   printf("wanted_nb_samples = %d\n",wanted_nb_samples);
+   //wanted_nb_samples = 1536;
+   if (_AudioFrame->format != _AudioParameterSrc._fmt            ||
+                dec_channel_layout         != _AudioParameterSrc._channel_layout ||
+                _AudioFrame->sample_rate   != _AudioParameterSrc._sample_rate    ||
+                (wanted_nb_samples         != _AudioFrame->nb_samples && !_SwrCtx)) {
+                swr_free(&_SwrCtx);
+
+     _SwrCtx = swr_alloc_set_opts(NULL,_AudioTgt._channel_layout, 
+				(AVSampleFormat)(_AudioTgt._fmt), _AudioTgt._sample_rate,
+				dec_channel_layout,(AVSampleFormat)_AudioFrame->format, 
+				_AudioFrame->sample_rate,0, NULL);
+     printf("output parameter fmt = %d,sample_rate = %d\n",_AudioTgt._fmt,_AudioTgt._sample_rate);
+     printf("input parameter fmt = %d,sample_rate = %d\n",_AudioFrame->format,_AudioFrame->sample_rate);
+
+     if (!_SwrCtx || swr_init(_SwrCtx) < 0) {
+	av_log(NULL, AV_LOG_ERROR,"Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",_AudioFrame->sample_rate, 
+		av_get_sample_fmt_name((AVSampleFormat)_AudioFrame->format), 
+		av_frame_get_channels(_AudioFrame),_AudioTgt._sample_rate,
+		av_get_sample_fmt_name((AVSampleFormat)_AudioTgt._fmt), _AudioTgt._channels);
+                    return;
+     }
+     _AudioParameterSrc._channel_layout = dec_channel_layout;
+     _AudioParameterSrc._channels       = av_frame_get_channels(_AudioFrame);
+     _AudioParameterSrc._sample_rate = _AudioFrame->sample_rate;
+     _AudioParameterSrc._fmt = (SampleFormat)_AudioFrame->format;
+  }
+
+
+  if (_SwrCtx) {
+     const uint8_t **in = (const uint8_t **)_AudioFrame->extended_data;
+     uint8_t **out = &_AudioSwrBuf;
+     int out_count = (int64_t)wanted_nb_samples * _AudioTgt._sample_rate / _AudioFrame->sample_rate + 256;
+     int out_size  = av_samples_get_buffer_size(NULL, _AudioTgt._channels, 
+						out_count, (AVSampleFormat)_AudioTgt._fmt, 0);
+     int len2;
+     if (out_size < 0) {
+        av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
+        return;
+     }
+     if (wanted_nb_samples != _AudioFrame->nb_samples) {
+       if (swr_set_compensation(_SwrCtx, 
+		(wanted_nb_samples - _AudioFrame->nb_samples) * _AudioTgt._sample_rate / _AudioFrame->sample_rate,
+                wanted_nb_samples * _AudioTgt._sample_rate / _AudioFrame->sample_rate) < 0) {
+          av_log(NULL, AV_LOG_ERROR, "swr_set_compensation() failed\n");
+          return;
+       }
+     }
+     av_fast_malloc(&_AudioSwrBuf, &_AudioSwrBufSize, out_size);
+     printf("_AudioSwrBufSize = %d,out_size = %d\n",_AudioSwrBufSize, out_size);
+     if (!_AudioSwrBuf)
+        return ;//AVERROR(ENOMEM);
+     len2 = swr_convert(_SwrCtx, out, out_count, in, _AudioFrame->nb_samples);
+     if (len2 < 0) {
+       av_log(NULL, AV_LOG_ERROR, "swr_convert() failed\n");
+       return;
+     }
+     if (len2 == out_count) {
+       av_log(NULL, AV_LOG_WARNING, "audio buffer is probably too small\n");
+       swr_init(_SwrCtx);
+     }
+     *buf = _AudioSwrBuf;
+     resampled_data_size = len2 * _AudioTgt._channels * av_get_bytes_per_sample((AVSampleFormat)_AudioTgt._fmt);
+     printf("1 resampled_data_size = %d\n",resampled_data_size);
+     len = resampled_data_size;
+  } else {
+     *buf = _AudioFrame->data[0];
+     resampled_data_size = len;
+     printf("2 resampled_data_size = %d\n",resampled_data_size);
+     len = resampled_data_size;
+  }
+ 
+
+
+}
+
 void DawnPlayer::AudioDecode(){
   int ret = 0;
   while( packet.stream_index != -1 ){
@@ -294,7 +448,10 @@ void DawnPlayer::AudioDecode(){
                                                     _AudioFrame->nb_samples,
                                                     (AVSampleFormat)_AudioFrame->format, 1);
 	printf("data_size = %d\n",data_size);
-        _AudioCallBack(_AudioCallBackData,_AudioFrame->data[0],data_size);
+        unsigned char *buf;
+        AudioConvert(&buf,data_size);
+        //_AudioCallBack(_AudioCallBackData,_AudioFrame->data[0],data_size);
+        _AudioCallBack(_AudioCallBackData,buf,data_size);
         printf("format = %d\n",_AudioFrame->format);
       }
     }
@@ -407,7 +564,7 @@ int main(int argc,char* argv[]){
     
     //sleep(10);
     player->GetAudioParameter(&parameter);
-    ss.format = PA_SAMPLE_S16NE;//PA_SAMPLE_S16BE;//PA_SAMPLE_FLOAT32LE;//;
+    ss.format = PA_SAMPLE_S16LE;//PA_SAMPLE_FLOAT32LE(晓松说用)
     ss.channels = parameter._channels;
     ss.rate = parameter._sample_rate;
     s = pa_simple_new(NULL,               // Use the default server.
