@@ -14,6 +14,7 @@ extern "C"{
 #include <libswscale/swscale.h>
 }
 typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
+typedef void (*VideoCallBack)(void* prv_data,AVFrame* frame);
 enum {
 	SYNC_AUDIO_MASTER, /* default choice */
 	SYNC_VIDEO_MASTER,
@@ -44,6 +45,11 @@ struct AudioParameter{
 	enum SampleFormat _fmt;
 
 };
+struct VideoParameter{
+	int _width;
+	int _height;
+	
+};
 
 class DawnPlayer{
 public:
@@ -51,7 +57,9 @@ public:
   ~DawnPlayer();
   bool Init(char* Pathi);
   void GetAudioParameter(AudioParameter* parameter);
+  void GetVideoParameter(VideoParameter* parameter);
   void SetAudioCallBack(void* data,AudioCallBack callback);
+  void SetVideoCallBack(void* data,VideoCallBack callback);
   void Run();
 protected:
   void VideoDecode();
@@ -59,20 +67,40 @@ protected:
   void SubtitleDecode();
 private:
   static int DecodeInterruptCB(void *ctx);
-  AudioCallBack   _AudioCallBack;
-  void            *_AudioCallBackData;
-  void AudioConvert(unsigned char** buf,int &len);
 
 
   AVFormatContext *_FormatCtx;
   
+  /////////////////////////////////////////////////
+  //
+  //////////////////////////////////////////////////
+  VideoCallBack   _VideoCallBack;
+  void            *_VideoCallBackPrvData;
   int             _videoStream;
   AVCodecContext  *_videoCodecCtx;
   AVCodec         *_videoCodec;
   AVFrame         *_VideoFrame;
-  AVFrame         *pFrameRGB;
- 
+  AVFrame         *_FrameRgb;
+  int             _RgbNumBytes;
+  uint8_t         *_RgbBuffer;
+  void            SaveRgbImage();
+  AVFrame         *_FrameYuv;
+  int             _YuvNumBytes;
+  uint8_t         *_YuvBuffer;
+  void            VideoConvert();
+
+  //////////////////////////////////////////////
+  //声音相关方法 
+  ///////////////////////////////////////////////
+  AudioCallBack   _AudioCallBack;
+  void            *_AudioCallBackPrvData;
+  //返回声音同步率
   int SynchronizeAudio(int nb_samples);
+  //计算声音pts
+  void AudioPts();
+  int64_t _AudioFrameNextPts;
+  //将声音转化成硬件可支持格式
+  void AudioConvert(unsigned char** buf,int &len);
   int             _audioStream;
   AVCodecContext  *_audioCodecCtx;
   AVCodec         *_audioCodec;
@@ -96,10 +124,6 @@ private:
 
   int             frameFinished;
 
-  int             numBytes;
-
-  uint8_t         *buffer;
-  
   
   int vframe_index;
   int aframe_index;

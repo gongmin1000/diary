@@ -1,4 +1,4 @@
-//g++ -g -o DawnPlayer -D__STDC_CONSTANT_MACROS   DawnPlayer.cpp -I/home/dongrui/program/ffmpeg/include -L/home/dongrui/program/ffmpeg/lib   -lavformat -lavcodec  -lavdevice  -lavfilter  -lavutil  -lswresample  -lswscale -lz -lpthread -lboost_thread-mt -lSDL
+ //g++ -g -o DawnPlayer -D__STDC_CONSTANT_MACROS   DawnPlayer.cpp -I/home/dongrui/program/ffmpeg/include -L/home/dongrui/program/ffmpeg/lib   -lavformat -lavcodec  -lavdevice  -lavfilter  -lavutil  -lswresample  -lswscale -lz -lpthread -lboost_thread-mt -lSDL2 
 //-fpermissive /usr/lib/x86_64-linux-gnu/libpulse-simple.so /usr/lib/x86_64-linux-gnu/libpulse.so
 #include "DawnPlayer.h"
 static void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame)
@@ -49,23 +49,33 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
-  _FormatCtx(NULL),_VideoFrame(NULL),pFrameRGB(NULL),
+  _FormatCtx(NULL),_VideoFrame(NULL),
+  _FrameRgb(NULL),_RgbBuffer(NULL),
+  _FrameYuv(NULL),_YuvBuffer(NULL),
   _videoCodecCtx(NULL),_videoCodec(NULL),
   _audioCodecCtx(NULL),_audioCodec(NULL),
   _subtitleCodecCtx(NULL),_subtitleCodec(NULL),
-  buffer(NULL),_AudioFrame(NULL),
-  _AudioCallBack(NULL),
+  _AudioFrame(NULL),
+  _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
+  _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
 }
 
 DawnPlayer::~DawnPlayer(){
-  if(buffer)
-    av_free(buffer);
   
-  if(pFrameRGB)
-    av_free(pFrameRGB);
+  if(_FrameRgb)
+    av_free(_FrameRgb);
+
+  if(_RgbBuffer)
+    av_free(_RgbBuffer);
+
+  if(_FrameYuv)
+    av_free(_FrameYuv);
+
+  if(_YuvBuffer)
+    av_free(_YuvBuffer);
 
   if(_VideoFrame)
     av_free(_VideoFrame);
@@ -101,11 +111,22 @@ void DawnPlayer::GetAudioParameter(AudioParameter* parameter)
 	_AudioTgt._fmt = SAMPLE_FMT_S16;
 }
 
-
 void DawnPlayer::SetAudioCallBack(void* data,AudioCallBack callback)
 {
   _AudioCallBack = callback;
-  _AudioCallBackData = data;
+  _AudioCallBackPrvData = data;
+}
+
+void DawnPlayer::GetVideoParameter(VideoParameter* parameter)
+{
+	parameter->_width = _videoCodecCtx->width;
+	parameter->_height = _videoCodecCtx->height;
+}
+
+void DawnPlayer::SetVideoCallBack(void* data,VideoCallBack callback)
+{
+  _VideoCallBack = callback;
+  _VideoCallBackPrvData = data;
 }
 
 bool DawnPlayer::Init(char* Path){
@@ -189,22 +210,40 @@ bool DawnPlayer::Init(char* Path){
       return false;
     }
 
-    pFrameRGB = avcodec_alloc_frame();
+    //分配RGB色彩域_
+    _FrameRgb = avcodec_alloc_frame();
 
-    if( pFrameRGB == NULL ){
+    if( _FrameRgb == NULL ){
 
       return false;
     }
+    else{
   
-    numBytes = avpicture_get_size(PIX_FMT_RGB24, 
+      _RgbNumBytes = avpicture_get_size(PIX_FMT_RGB24, 
 				  _videoCodecCtx->width,
 				  _videoCodecCtx->height);
   
-    buffer = (uint8_t*)av_malloc(numBytes);
+      _RgbBuffer = (uint8_t*)av_malloc(_RgbNumBytes);
 
-    avpicture_fill( (AVPicture *)pFrameRGB, buffer, PIX_FMT_RGB24,
-          _videoCodecCtx->width, _videoCodecCtx->height);
+      avpicture_fill( (AVPicture *)_FrameRgb, _RgbBuffer, PIX_FMT_RGB24,
+                      _videoCodecCtx->width, _videoCodecCtx->height);
+    }
+
+    //分配YUV色彩域
+    _FrameYuv = avcodec_alloc_frame();
+    if( _FrameYuv == NULL ){
+       return false;
+    }
+    else{
+      _YuvNumBytes = avpicture_get_size(PIX_FMT_YUV420P, 
+				  _videoCodecCtx->width,
+				  _videoCodecCtx->height);
   
+      _YuvBuffer = (uint8_t*)av_malloc(_YuvNumBytes);
+
+      avpicture_fill( (AVPicture *)_FrameYuv, _YuvBuffer, PIX_FMT_YUV420P,
+                      _videoCodecCtx->width, _videoCodecCtx->height);
+    }
   }
   
   //初始化音频解码器
@@ -253,6 +292,67 @@ bool DawnPlayer::Init(char* Path){
   return true;
 }
 
+void DawnPlayer::SaveRgbImage(){
+  struct SwsContext *img_convert_ctx = NULL;
+
+  img_convert_ctx = sws_getCachedContext(
+		img_convert_ctx, _VideoFrame->width,
+
+                 _VideoFrame->height, (AVPixelFormat)_VideoFrame->format,
+
+                 _VideoFrame->width, _VideoFrame->height,
+
+                 PIX_FMT_RGB24, SWS_BICUBIC,
+
+                 NULL, NULL, NULL);
+
+  if( !img_convert_ctx ) {
+
+      fprintf(stderr, "Cannot initialize sws conversion context\n");
+
+      exit(1);
+
+      
+  }
+
+  sws_scale(img_convert_ctx, (const uint8_t* const*)_VideoFrame->data,
+	      _VideoFrame->linesize, 0, _VideoFrame->height, 
+	      _FrameRgb->data,_FrameRgb->linesize);
+
+  //SaveFrame(pFrameRGB, _videoCodecCtx->width, _videoCodecCtx->height, vframe_index);
+  SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
+}
+
+void  DawnPlayer::VideoConvert()
+{
+  struct SwsContext *img_convert_ctx = NULL;
+
+  img_convert_ctx = sws_getCachedContext(
+		img_convert_ctx, _VideoFrame->width,
+
+                 _VideoFrame->height, (AVPixelFormat)_VideoFrame->format,
+
+                 _VideoFrame->width, _VideoFrame->height,
+
+                 PIX_FMT_YUV420P, SWS_BILINEAR,
+
+                 NULL, NULL, NULL);
+
+  if( !img_convert_ctx ) {
+
+      fprintf(stderr, "Cannot initialize sws conversion context\n");
+
+      exit(1);
+
+      
+  }
+
+  sws_scale(img_convert_ctx, (const uint8_t* const*)_VideoFrame->data,
+	      _VideoFrame->linesize, 0, _VideoFrame->height, 
+	      _FrameYuv->data,_FrameYuv->linesize);
+
+}
+
 void DawnPlayer::VideoDecode(){
   int ret = 0;
   avcodec_get_frame_defaults(_VideoFrame);
@@ -261,43 +361,37 @@ void DawnPlayer::VideoDecode(){
     printf("avcodec_decode_video2 error ret = %d\n",ret);
   }
   if( frameFinished ) {
-    struct SwsContext *img_convert_ctx = NULL;
-
-    img_convert_ctx = sws_getCachedContext(
-		img_convert_ctx, _videoCodecCtx->width,
-
-                 _videoCodecCtx->height, _videoCodecCtx->pix_fmt,
-
-                 _videoCodecCtx->width, _videoCodecCtx->height,
-
-                 PIX_FMT_RGB24, SWS_BICUBIC,
-
-                 NULL, NULL, NULL);
-
-    if( !img_convert_ctx ) {
-
-      fprintf(stderr, "Cannot initialize sws conversion context\n");
-
-      exit(1);
-
-      
-    }
-
-    sws_scale(img_convert_ctx, (const uint8_t* const*)_VideoFrame->data,
-	      _VideoFrame->linesize, 0, _videoCodecCtx->height, 
-	      pFrameRGB->data,pFrameRGB->linesize);
-
-    //if( vframe_index++ < 50 ){
-      vframe_index++;
-      //SaveFrame(pFrameRGB, _videoCodecCtx->width, _videoCodecCtx->height, vframe_index);
-    //}
+     vframe_index++;
+     if( _VideoCallBack ){
+        printf("VideoCallBack\n");
+        _VideoCallBack(_VideoCallBackPrvData,_VideoFrame);
+     }
+    //SaveRgbImage();
   }
+}
+
+
+void DawnPlayer::AudioPts()
+{
+  AVRational tb;
+  printf("0_AudioFrame->pts = %lld\n",(long long int)_AudioFrame->pts);
+  tb = (AVRational){1, _AudioFrame->sample_rate};
+  if (_AudioFrame->pts != AV_NOPTS_VALUE)
+    _AudioFrame->pts = av_rescale_q(_AudioFrame->pts, _audioCodecCtx->time_base, tb);
+  else if (_AudioFrame->pkt_pts != AV_NOPTS_VALUE)
+    _AudioFrame->pts = av_rescale_q(_AudioFrame->pkt_pts, 
+					_FormatCtx->streams[_audioStream]->time_base, tb);
+  else if (_AudioFrameNextPts != AV_NOPTS_VALUE)
+    _AudioFrame->pts = av_rescale_q(_AudioFrameNextPts, 
+                                    (AVRational){1, _AudioParameterSrc._sample_rate}, tb);
+
+  printf("1_AudioFrame->pts = %lld\n",(long long int)_AudioFrame->pts);
 }
 
 /* return the wanted number of samples to get better sync if sync_type is video
  * or external master clock */
 int DawnPlayer::SynchronizeAudio(int nb_samples)
-{
+{//根据后续开发决定是否增加
     int wanted_nb_samples = nb_samples;
 
     // if not master, then we try to remove or add samples to correct the clock 
@@ -352,7 +446,6 @@ void DawnPlayer::AudioConvert(unsigned char** buf,int &len)
    printf("_AudioFrame->nb_samples = %d\n",_AudioFrame->nb_samples);
    wanted_nb_samples = SynchronizeAudio(_AudioFrame->nb_samples);
    printf("wanted_nb_samples = %d\n",wanted_nb_samples);
-   //wanted_nb_samples = 1536;
    if (_AudioFrame->format != _AudioParameterSrc._fmt            ||
                 dec_channel_layout         != _AudioParameterSrc._channel_layout ||
                 _AudioFrame->sample_rate   != _AudioParameterSrc._sample_rate    ||
@@ -451,7 +544,7 @@ void DawnPlayer::AudioDecode(){
         unsigned char *buf;
         AudioConvert(&buf,data_size);
         //_AudioCallBack(_AudioCallBackData,_AudioFrame->data[0],data_size);
-        _AudioCallBack(_AudioCallBackData,buf,data_size);
+        _AudioCallBack(_AudioCallBackPrvData,buf,data_size);
         printf("format = %d\n",_AudioFrame->format);
       }
     }
@@ -462,6 +555,7 @@ void DawnPlayer::AudioDecode(){
     if (packet.data && packet.size <= 0 || !packet.data && !frameFinished ){
 	packet.stream_index = -1;
     }
+    AudioPts();
   }
 }
 
@@ -526,6 +620,22 @@ void DawnPlayer::Run(){
   delete this;
 }
 
+#include <SDL2/SDL.h>  
+#include <SDL2/SDL_thread.h>
+SDL_Renderer *renderer;
+void VideoPlay(void* prv_data,AVFrame* frame){
+  SDL_Rect        rect;
+  SDL_Texture    *bmp = (SDL_Texture*)prv_data;	
+  rect.x = 0;  
+  rect.y = 0;  
+  rect.w = frame->width;  
+  rect.h = frame->height; 
+
+  SDL_UpdateTexture( bmp, &rect, frame->data[0], frame->linesize[0] );
+  SDL_RenderClear( renderer );  
+  SDL_RenderCopy( renderer, bmp, &rect, &rect );  
+  SDL_RenderPresent( renderer );
+}
 
 #include <pulse/simple.h>
 #include <pulse/error.h>
@@ -548,7 +658,6 @@ int main(int argc,char* argv[]){
   pa_simple *s;
   pa_sample_spec ss;
  
-  for(int i = 0 ; i < 1 ; i++ ){
     /*if( player ){
       delete player;
     }*/
@@ -583,11 +692,39 @@ int main(int argc,char* argv[]){
       return 0;
     }
     player->SetAudioCallBack(s,AudioPlay);
+
+    /////////////////////////////////////////////////////
+    //
+    VideoParameter videoparameter;
+    player->GetVideoParameter(&videoparameter);
+    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
+        fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());  
+        exit(1);  
+    }
+    SDL_Texture    *bmp = NULL;  
+    SDL_Window     *screen = NULL;  
+    SDL_Rect        rect;
+    screen = SDL_CreateWindow("My Game Window",  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              videoparameter._width,  videoparameter._height,  
+                              SDL_WINDOW_OPENGL);  
+    renderer = SDL_CreateRenderer(screen, -1, 0);  
+      
+      
+    if(!screen) {  
+        fprintf(stderr, "SDL: could not set video mode - exiting\n");  
+        exit(1);  
+    }  
+    bmp = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_YV12,
+			SDL_TEXTUREACCESS_STREAMING,
+				videoparameter._width,videoparameter._height);
+    player->SetVideoCallBack(bmp,VideoPlay);    
     player->Run();
+    SDL_DestroyTexture(bmp); 
     if (s){
         pa_simple_free(s); 
     }
-  }
-  player->_thr.join();
+    
  
 }
