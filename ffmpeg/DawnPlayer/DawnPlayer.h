@@ -13,36 +13,18 @@ extern "C"{
 #include <libavcodec/avfft.h>
 #include <libswscale/swscale.h>
 }
+
+#include <list>
+
 typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
 typedef void (*VideoCallBack)(void* prv_data,AVFrame* frame);
-enum {
-	SYNC_AUDIO_MASTER, /* default choice */
-	SYNC_VIDEO_MASTER,
-	SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
-};
 
-enum SampleFormat {
-	SAMPLE_FMT_NONE = -1,
-	SAMPLE_FMT_U8,          ///< unsigned 8 bits
-	SAMPLE_FMT_S16,         ///< signed 16 bits
-	SAMPLE_FMT_S32,         ///< signed 32 bits
-	SAMPLE_FMT_FLT,         ///< float
-	SAMPLE_FMT_DBL,         ///< double
-
-	SAMPLE_FMT_U8P,         ///< unsigned 8 bits, planar
-	SAMPLE_FMT_S16P,        ///< signed 16 bits, planar
-	SAMPLE_FMT_S32P,        ///< signed 32 bits, planar
-	SAMPLE_FMT_FLTP,        ///< float, planar
-	SAMPLE_FMT_DBLP,        ///< double, planar
-
-	SAMPLE_FMT_NB           ///< Number of sample formats. DO NOT USE if linking dynamically
-};
 
 struct AudioParameter{
 	int _channels;
 	int _sample_rate;
 	int64_t _channel_layout;
-	enum SampleFormat _fmt;
+	enum AVSampleFormat _fmt;
 
 };
 struct VideoParameter{
@@ -60,7 +42,7 @@ public:
   void GetVideoParameter(VideoParameter* parameter);
   void SetAudioCallBack(void* data,AudioCallBack callback);
   void SetVideoCallBack(void* data,VideoCallBack callback);
-  void Run();
+  void ReadPacket();
 protected:
   void VideoDecode();
   void AudioDecode();
@@ -72,22 +54,28 @@ private:
   AVFormatContext *_FormatCtx;
   
   /////////////////////////////////////////////////
-  //
+  //视频相关方法
   //////////////////////////////////////////////////
   VideoCallBack   _VideoCallBack;
   void            *_VideoCallBackPrvData;
-  int             _videoStream;
-  AVCodecContext  *_videoCodecCtx;
-  AVCodec         *_videoCodec;
+  int             _VideoStream;
+  AVCodecContext  *_VideoCodecCtx;
+  AVCodec         *_VideoCodec;
   AVFrame         *_VideoFrame;
   AVFrame         *_FrameRgb;
   int             _RgbNumBytes;
   uint8_t         *_RgbBuffer;
-  void            SaveRgbImage();
+  struct SwsContext *_RgbConvertCtx;
+  void            VideoConvertRgb();
   AVFrame         *_FrameYuv;
   int             _YuvNumBytes;
   uint8_t         *_YuvBuffer;
-  void            VideoConvert();
+  struct SwsContext *_YuvConvertCtx;
+  void            VideoConvertYuv();
+  std::list<AVPacket>  _VideoPacketList;
+  pthread_mutex_t _VideoPacketListMutex;
+  pthread_t       _VideoThread;
+  pthread_attr_t  _VideoAttr;
 
   //////////////////////////////////////////////
   //声音相关方法 
@@ -101,28 +89,30 @@ private:
   int64_t _AudioFrameNextPts;
   //将声音转化成硬件可支持格式
   void AudioConvert(unsigned char** buf,int &len);
-  int             _audioStream;
-  AVCodecContext  *_audioCodecCtx;
-  AVCodec         *_audioCodec;
+  int             _AudioStream;
+  AVCodecContext  *_AudioCodecCtx;
+  AVCodec         *_AudioCodec;
   AVFrame         *_AudioFrame;
   AudioParameter  _AudioParameterSrc;
   AudioParameter  _AudioTgt;
   SwrContext      *_SwrCtx;
   unsigned char   *_AudioSwrBuf;
   unsigned int    _AudioSwrBufSize;
-  /*unsigned char   *_AudioOutBuf;
-  unsigned int    _AudioOutBufSize;*/
-  
-  
-  int             _subtitleStream;
-  AVCodecContext  *_subtitleCodecCtx;
-  AVCodec         *_subtitleCodec;
-  
-
-
-  AVPacket        packet;
-
-  int             frameFinished;
+  std::list<AVPacket>  _AudioPacketList;
+  pthread_mutex_t _AudioPacketListMutex;
+  pthread_t       _AudioThread;
+  pthread_attr_t  _AudioAttr;
+ 
+  /////////////////////////////////////////////////
+  //字幕相关方法
+  ////////////////////////////////////////////////// 
+  int             _SubtitleStream;
+  AVCodecContext  *_SubtitleCodecCtx;
+  AVCodec         *_SubtitleCodec;
+  std::list<AVPacket>  _SubPacketList;
+  pthread_mutex_t _SubPacketListMutex;
+  pthread_t       _SubThread;
+  pthread_attr_t  _SubAttr;
 
   
   int vframe_index;
