@@ -1,8 +1,6 @@
 #ifndef __DAWN_PLAYER_H__
 #define __DAWN_PLAYER_H__
-
-#include <boost/thread/thread.hpp>
-#include <boost/bind.hpp>
+#include <pthread.h>
 
 extern "C"{
 #include <libavcodec/avcodec.h>
@@ -37,21 +35,33 @@ class DawnPlayer{
 public:
   DawnPlayer();
   ~DawnPlayer();
-  bool Init(char* Pathi);
+  static void *VideoThreadRun(void* arg);
+  static void *AudioThreadRun(void* arg);
+  static void *SubThreadRun(void* arg);
+  static void *ReadPacketThreadRun(void* arg);
+
+
+  bool Init(char* Path);
   void GetAudioParameter(AudioParameter* parameter);
   void GetVideoParameter(VideoParameter* parameter);
   void SetAudioCallBack(void* data,AudioCallBack callback);
   void SetVideoCallBack(void* data,VideoCallBack callback);
-  void ReadPacket();
+  void Play();
 protected:
   void VideoDecode();
   void AudioDecode();
   void SubtitleDecode();
+  void ReadPacket();
 private:
   static int DecodeInterruptCB(void *ctx);
 
-
+  //////////////////////////////////////////////////
+  //
   AVFormatContext *_FormatCtx;
+  pthread_t       _ReadPacketThread;
+  pthread_attr_t  _ReadPacketThreadAttr;
+  pthread_mutex_t _ReadPacketCountMutex;
+  pthread_cond_t  _ReadPacketCount;
   
   /////////////////////////////////////////////////
   //视频相关方法
@@ -75,7 +85,9 @@ private:
   std::list<AVPacket>  _VideoPacketList;
   pthread_mutex_t _VideoPacketListMutex;
   pthread_t       _VideoThread;
-  pthread_attr_t  _VideoAttr;
+  pthread_attr_t  _VideoThreadAttr;
+  pthread_mutex_t _VideoThreadCountMutex;
+  pthread_cond_t  _VideoThreadCount;
 
   //////////////////////////////////////////////
   //声音相关方法 
@@ -101,7 +113,9 @@ private:
   std::list<AVPacket>  _AudioPacketList;
   pthread_mutex_t _AudioPacketListMutex;
   pthread_t       _AudioThread;
-  pthread_attr_t  _AudioAttr;
+  pthread_attr_t  _AudioThreadAttr;
+  pthread_mutex_t _AudioThreadCountMutex;
+  pthread_cond_t  _AudioThreadCount;
  
   /////////////////////////////////////////////////
   //字幕相关方法
@@ -112,14 +126,15 @@ private:
   std::list<AVPacket>  _SubPacketList;
   pthread_mutex_t _SubPacketListMutex;
   pthread_t       _SubThread;
-  pthread_attr_t  _SubAttr;
+  pthread_attr_t  _SubThreadAttr;
+  pthread_mutex_t _SubThreadCountMutex;
+  pthread_cond_t  _SubThreadCount;
 
   
   int vframe_index;
   int aframe_index;
   int sframe_index;
 public:
-  boost::thread _thr;
   
 };
 
