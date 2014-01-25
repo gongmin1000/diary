@@ -407,6 +407,7 @@ void DawnPlayer::VideoConvertRgb(){
 	      _FrameRgb->data,_FrameRgb->linesize);
 
   printf("_FrameRgb->width = %d,_FrameRgb->height = %d\n",_FrameRgb->width,_FrameRgb->height);
+  printf("_FrameRgb->linesize[0] = %d\n",_FrameRgb->linesize[0]);
 }
 
 void  DawnPlayer::VideoConvertYuv()
@@ -436,6 +437,7 @@ void  DawnPlayer::VideoConvertYuv()
 	      _VideoFrame->linesize, 0, _VideoFrame->height, 
 	      _FrameYuv->data,_FrameYuv->linesize);
   printf("_FrameYuv->width = %d,_FrameYuv->height = %d\n",_FrameYuv->width,_FrameYuv->height);
+  printf("_FrameYuv->linesize[0] = %d\n",_FrameYuv->linesize[0]);
 }
 
 void DawnPlayer::VideoDecode(){
@@ -462,7 +464,6 @@ void DawnPlayer::VideoDecode(){
      ret = avcodec_decode_video2(_VideoCodecCtx, _VideoFrame, &VideoFrameFinished, &packet);
      if( ret < 0 ){
         printf("avcodec_decode_video2 error ret = %d\n",ret);
-        //return ;
      }
      if( VideoFrameFinished ) {
         vframe_index++;
@@ -668,10 +669,9 @@ void DawnPlayer::AudioDecode(){
     avcodec_get_frame_defaults(_AudioFrame);
     ret = avcodec_decode_audio4(_AudioCodecCtx, _AudioFrame, &AudioFrameFinished, &packet);
     if ( ret < 0) {
-      // if error, we skip the frame 
-      packet.size = 0;
+        // if error, we skip the frame 
+        packet.size = 0;
 	printf("packet.size = 0\n");
-      break;
     }
     packet.dts =
     packet.pts = AV_NOPTS_VALUE;
@@ -681,24 +681,22 @@ void DawnPlayer::AudioDecode(){
 	packet.stream_index = -1;
     }
     if( AudioFrameFinished ){
-      aframe_index++;
+        aframe_index++;
     
-      if( !_AudioCallBack ){
-        printf("!_AudioCallBack\n");
-        break;
-      }
-      else{
-        AudioPts();
-	int data_size = av_samples_get_buffer_size(NULL, av_frame_get_channels(_AudioFrame),
+        if( !_AudioCallBack ){
+            printf("!_AudioCallBack\n");
+        }
+        else{
+            AudioPts();
+	    int data_size = av_samples_get_buffer_size(NULL, av_frame_get_channels(_AudioFrame),
                                                     _AudioFrame->nb_samples,
                                                     (AVSampleFormat)_AudioFrame->format, 1);
-	printf("data_size = %d\n",data_size);
-        unsigned char *buf;
-        AudioConvert(&buf,data_size);
-        //_AudioCallBack(_AudioCallBackData,_AudioFrame->data[0],data_size);
-        _AudioCallBack(_AudioCallBackPrvData,buf,data_size);
-        printf("format = %d\n",_AudioFrame->format);
-      }
+	    printf("data_size = %d\n",data_size);
+            unsigned char *buf;
+            AudioConvert(&buf,data_size);
+            _AudioCallBack(_AudioCallBackPrvData,buf,data_size);
+            printf("format = %d\n",_AudioFrame->format);
+        }
     }
 
     pthread_mutex_lock(&_AudioPacketListMutex);
@@ -822,25 +820,51 @@ void DawnPlayer::ReadPacket(){
   printf("aframe_index = %d\n",aframe_index);
   printf("sframe_index = %d\n",sframe_index);
 
-  delete this;
 }
 
+#include <unistd.h>
 #include <SDL2/SDL.h>  
 #include <SDL2/SDL_thread.h>
+SDL_Texture    *bmp = NULL;  
+SDL_Window     *screen = NULL;  
+SDL_Rect        rect;
 SDL_Renderer *renderer;
 void VideoPlay(void* prv_data,AVFrame* frame){
-  SDL_Rect        rect;
-  SDL_Texture    *bmp = (SDL_Texture*)prv_data;	
-  rect.x = 0;  
-  rect.y = 0;  
-  rect.w = frame->width;  
-  rect.h = frame->height;
+    static bool sdl_init = false;
+    if( sdl_init == false ){
+        if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
+            fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());  
+            exit(1);  
+        }
+        screen = SDL_CreateWindow("My Game Window",  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              frame->width,  frame->height,  
+                              SDL_WINDOW_OPENGL);  
+        renderer = SDL_CreateRenderer(screen, -1, 0);  
+      
+      
+        if(!screen) {  
+            fprintf(stderr, "SDL: could not set video mode - exiting\n");  
+            exit(1);  
+        }  
+        bmp = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGB24,
+				SDL_TEXTUREACCESS_STREAMING,
+				frame->width,frame->height);
+        sdl_init = true;
+    }
 
-  printf("frame->width = %d,frame->height = %d\n",frame->width,frame->height);
-  SDL_UpdateTexture( bmp, &rect, frame->data[0], frame->linesize[0] );
-  SDL_RenderClear( renderer );  
-  SDL_RenderCopy( renderer, bmp, &rect, &rect );  
-  SDL_RenderPresent( renderer );
+    rect.x = 0;  
+    rect.y = 0;  
+    rect.w = frame->width;  
+    rect.h = frame->height;
+
+    SDL_UpdateTexture( bmp, &rect, frame->data[0], frame->linesize[0] );
+    SDL_RenderClear( renderer );  
+    SDL_RenderCopy( renderer, bmp, &rect, &rect );  
+    SDL_RenderPresent( renderer );
+
+    usleep(10);
 }
 
 #include <pulse/simple.h>
@@ -908,29 +932,7 @@ int main(int argc,char* argv[]){
     //
     VideoParameter videoparameter;
     player->GetVideoParameter(&videoparameter);
-    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
-        fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());  
-        exit(1);  
-    }
-    SDL_Texture    *bmp = NULL;  
-    SDL_Window     *screen = NULL;  
-    SDL_Rect        rect;
-    screen = SDL_CreateWindow("My Game Window",  
-                              SDL_WINDOWPOS_UNDEFINED,  
-                              SDL_WINDOWPOS_UNDEFINED,  
-                              videoparameter._width,  videoparameter._height,  
-                              SDL_WINDOW_OPENGL);  
-    renderer = SDL_CreateRenderer(screen, -1, 0);  
-      
-      
-    if(!screen) {  
-        fprintf(stderr, "SDL: could not set video mode - exiting\n");  
-        exit(1);  
-    }  
-    bmp = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGB24,
-			SDL_TEXTUREACCESS_STREAMING,
-				videoparameter._width,videoparameter._height);
-    player->SetVideoCallBack(bmp,VideoPlay);    
+    player->SetVideoCallBack(NULL,VideoPlay);    
     player->Play();
     sleep(1000);
     SDL_DestroyTexture(bmp); 
