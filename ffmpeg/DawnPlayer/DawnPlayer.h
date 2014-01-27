@@ -1,5 +1,6 @@
 #ifndef __DAWN_PLAYER_H__
 #define __DAWN_PLAYER_H__
+#include <unistd.h>
 #include <pthread.h>
 
 extern "C"{
@@ -10,6 +11,7 @@ extern "C"{
 #include <libswresample/swresample.h>
 #include <libavcodec/avfft.h>
 #include <libswscale/swscale.h>
+#include <libavutil/time.h>
 }
 
 #include <list>
@@ -62,6 +64,7 @@ private:
   pthread_attr_t  _ReadPacketThreadAttr;
   pthread_mutex_t _ReadPacketCountMutex;
   pthread_cond_t  _ReadPacketCount;
+  double          _StartPlayTime;
   
   /////////////////////////////////////////////////
   //视频相关方法
@@ -88,6 +91,7 @@ private:
   pthread_attr_t  _VideoThreadAttr;
   pthread_mutex_t _VideoThreadCountMutex;
   pthread_cond_t  _VideoThreadCount;
+  uint64_t        _LastPts;
 
   //////////////////////////////////////////////
   //声音相关方法 
