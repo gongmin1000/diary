@@ -49,13 +49,13 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
-  _FormatCtx(NULL),_VideoFrame(NULL),_LastVideoPts(0),
+  _FormatCtx(NULL),_VideoFrame(NULL),_LastVideoPts(0),_CurVideoPts(0),
   _FrameRgb(NULL),_RgbBuffer(NULL),_RgbConvertCtx(NULL),
   _FrameYuv(NULL),_YuvBuffer(NULL),_YuvConvertCtx(NULL),
   _VideoCodecCtx(NULL),_VideoCodec(NULL),
   _AudioCodecCtx(NULL),_AudioCodec(NULL),
   _SubtitleCodecCtx(NULL),_SubtitleCodec(NULL),
-  _AudioFrame(NULL),_StartPlayTime(0),
+  _AudioFrame(NULL),_StartPlayTime(0),_LastAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
   vframe_index(0),aframe_index(0),sframe_index(0){
@@ -344,7 +344,7 @@ bool DawnPlayer::Init(char* Path){
 }
 
 void DawnPlayer::Play(){
-   _StartPlayTime = av_gettime() / 1000.0;
+   _StartPlayTime = av_gettime() ;
    if( _VideoStream != -1 ){
      printf("没有发现视频流\n");
      pthread_mutex_init(&_VideoPacketListMutex,NULL);
@@ -477,13 +477,24 @@ void DawnPlayer::VideoDecode(){
             printf("_VideoFrame->pkt_pts = %ld\n",_VideoFrame->pkt_pts);
             printf("_VideoFrame->pkt_dts = %ld\n",_VideoFrame->pkt_dts);
             printf("_StartPlayTime = %f\n",_StartPlayTime);
-	    double time = av_gettime() / 1000.0;
-	    printf("video played time = %f\n",time - _StartPlayTime);
-            double diff_time = time - _StartPlayTime - _VideoFrame->pkt_pts/100;
-	    printf("video play diff time  = %f\n",diff_time);
-            if( _LastVideoPts == 0 ){
-               _LastVideoPts = _VideoFrame->pkt_pts;
-            }
+	    
+            double va_time_diff = (_LastVideoPts - _LastAudioPts);
+	    printf("va_time_diff = %f\n",va_time_diff);
+	    
+            double time = av_gettime()  ;
+            _CurVideoPts = time - _StartPlayTime;
+	    printf("_CurVideoPts  = %f\n",_CurVideoPts);
+	    printf("_CurAudioPts  = %f\n",_CurAudioPts);
+
+	    double cur_time_diff = _CurVideoPts - _CurAudioPts;
+	    printf("cur_time_diff = %f\n",cur_time_diff);
+
+            //int delay = va_time_diff - _CurVideoPts ;
+            double delay = _CurVideoPts - va_time_diff;
+	    printf("delay = %f\n",delay);
+            if( delay > 0 ){
+		usleep(delay);
+	    }
 	    
             //VideoConvertYuv();
             //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
@@ -492,12 +503,6 @@ void DawnPlayer::VideoDecode(){
             _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
 
             //SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
-            int64_t delay = _VideoFrame->pkt_pts - _LastVideoPts;
-            delay = delay*10 + diff_time/1000;
-            printf("delay = %ld\n",delay);
-	    if( delay > 0 ){
-               usleep(delay);
-	    }
 
 
             _LastVideoPts = _VideoFrame->pkt_pts;
@@ -666,7 +671,7 @@ void DawnPlayer::AudioConvert(unsigned char** buf,int &len)
 void DawnPlayer::AudioDecode(){
    int AudioFrameFinished;//音频帧结束标志 
    int ret = 0;
-   _StartPlayTime = av_gettime() / 1000.0;
+   _StartPlayTime = av_gettime();
    while(1){
       pthread_mutex_lock(&_AudioPacketListMutex);
       if( _AudioPacketList.size() < 1 ){
@@ -723,9 +728,14 @@ void DawnPlayer::AudioDecode(){
             printf("_AudioFrame->pkt_pts = %ld\n",_AudioFrame->pkt_pts);
             printf("_AudioFrame->pkt_dts = %ld\n",_AudioFrame->pkt_dts);
             printf("_StartPlayTime = %f\n",_StartPlayTime);
-	    double time = av_gettime() / 1000.0;
-	    printf("audio played time = %f\n",time - _StartPlayTime);
-	    printf("audio play diff time  = %f\n",time - _StartPlayTime - _AudioFrame->pkt_pts/100);
+	    
+	    
+            double time = av_gettime() ;
+            _CurAudioPts = time - _StartPlayTime;
+	    printf("_CurAudioPts  = %f\n",_CurAudioPts);
+
+
+            _LastAudioPts = _AudioFrame->pkt_pts;
          }
       }
 
