@@ -91,7 +91,7 @@ private:
   pthread_attr_t  _VideoThreadAttr;
   pthread_mutex_t _VideoThreadCountMutex;
   pthread_cond_t  _VideoThreadCount;
-  uint64_t        _LastPts;
+  uint64_t        _LastVideoPts;
 
   //////////////////////////////////////////////
   //声音相关方法 
@@ -120,6 +120,7 @@ private:
   pthread_attr_t  _AudioThreadAttr;
   pthread_mutex_t _AudioThreadCountMutex;
   pthread_cond_t  _AudioThreadCount;
+  uint64_t        _LastAudioPts;
  
   /////////////////////////////////////////////////
   //字幕相关方法

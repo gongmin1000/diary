@@ -49,7 +49,7 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
-  _FormatCtx(NULL),_VideoFrame(NULL),_LastPts(0),
+  _FormatCtx(NULL),_VideoFrame(NULL),_LastVideoPts(0),
   _FrameRgb(NULL),_RgbBuffer(NULL),_RgbConvertCtx(NULL),
   _FrameYuv(NULL),_YuvBuffer(NULL),_YuvConvertCtx(NULL),
   _VideoCodecCtx(NULL),_VideoCodec(NULL),
@@ -481,8 +481,8 @@ void DawnPlayer::VideoDecode(){
 	    printf("video played time = %f\n",time - _StartPlayTime);
             double diff_time = time - _StartPlayTime - _VideoFrame->pkt_pts/100;
 	    printf("video play diff time  = %f\n",diff_time);
-            if( _LastPts == 0 ){
-               _LastPts = _VideoFrame->pkt_pts;
+            if( _LastVideoPts == 0 ){
+               _LastVideoPts = _VideoFrame->pkt_pts;
             }
 	    
             //VideoConvertYuv();
@@ -492,7 +492,7 @@ void DawnPlayer::VideoDecode(){
             _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
 
             //SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
-            int64_t delay = _VideoFrame->pkt_pts - _LastPts;
+            int64_t delay = _VideoFrame->pkt_pts - _LastVideoPts;
             delay = delay*10 + diff_time/1000;
             printf("delay = %ld\n",delay);
 	    if( delay > 0 ){
@@ -500,7 +500,7 @@ void DawnPlayer::VideoDecode(){
 	    }
 
 
-            _LastPts = _VideoFrame->pkt_pts;
+            _LastVideoPts = _VideoFrame->pkt_pts;
         }
      
      }
