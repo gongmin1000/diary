@@ -91,7 +91,7 @@ private:
   pthread_attr_t  _VideoThreadAttr;
   pthread_mutex_t _VideoThreadCountMutex;
   pthread_cond_t  _VideoThreadCount;
-  uint64_t        _LastVideoPts;
+  uint64_t        _FrameVideoPts;
   double          _CurVideoPts;
 
   //////////////////////////////////////////////
@@ -121,7 +121,8 @@ private:
   pthread_attr_t  _AudioThreadAttr;
   pthread_mutex_t _AudioThreadCountMutex;
   pthread_cond_t  _AudioThreadCount;
-  uint64_t        _LastAudioPts;
+  int             _MaxPacketListLen;
+  uint64_t          _FrameAudioPts;
   double          _CurAudioPts;
  
   /////////////////////////////////////////////////
