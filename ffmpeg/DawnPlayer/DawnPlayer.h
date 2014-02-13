@@ -38,6 +38,7 @@ public:
   DawnPlayer();
   ~DawnPlayer();
   static void *VideoThreadRun(void* arg);
+  static void *PicShowThreadRun(void* arg);
   static void *AudioThreadRun(void* arg);
   static void *SubThreadRun(void* arg);
   static void *ReadPacketThreadRun(void* arg);
@@ -51,6 +52,7 @@ public:
   void Play();
 protected:
   void VideoDecode();
+  void PicShow();
   void AudioDecode();
   void SubtitleDecode();
   void ReadPacket();
@@ -65,12 +67,8 @@ private:
   pthread_mutex_t _ReadPacketCountMutex;
   pthread_cond_t  _ReadPacketCount;
   double          _StartPlayTime;
+  int             _MaxPacketListLen;
  
-  /////////////////////////////////////////////////
-  //视频显示部分
-  ///////////////////////////////////////////////// 
-  std::list<AVFrame*> _FreeFrame;
-  std::list<AVFrame*> _ShowFrame;
   /////////////////////////////////////////////////
   //视频解码相关方法
   //////////////////////////////////////////////////
@@ -79,27 +77,41 @@ private:
   int             _VideoStream;
   AVCodecContext  *_VideoCodecCtx;
   AVCodec         *_VideoCodec;
-  AVFrame         *_VideoFrame;
+
   AVFrame         *_FrameRgb;
   int             _RgbNumBytes;
   uint8_t         *_RgbBuffer;
   struct SwsContext *_RgbConvertCtx;
-  void            VideoConvertRgb();
+  void            VideoConvertRgb(AVFrame *src_frame);
   AVFrame         *_FrameYuv;
   int             _YuvNumBytes;
   uint8_t         *_YuvBuffer;
   struct SwsContext *_YuvConvertCtx;
-  void            VideoConvertYuv();
+  void            VideoConvertYuv(AVFrame *src_frame);
+
   std::list<AVPacket>  _VideoPacketList;
   pthread_mutex_t _VideoPacketListMutex;
   pthread_t       _VideoThread;
   pthread_attr_t  _VideoThreadAttr;
-  pthread_mutex_t _VideoThreadCountMutex;
-  pthread_cond_t  _VideoThreadCount;
+  pthread_mutex_t _VideoThreadCondMutex;
+  pthread_cond_t  _VideoThreadCond;
+
   double          _FrameVideoPts;
   double          _LastFrameVideoPts;
   double          _VideoClock;
   double          _CurVideoPts;
+
+  /////////////////////////////////////////////////
+  //视频显示部分
+  ///////////////////////////////////////////////// 
+  pthread_mutex_t _FreeFrameListMutex;
+  std::list<AVFrame*> _FreeFrameList;
+  pthread_mutex_t _ShowFrameListMutex;
+  std::list<AVFrame*> _ShowFrameList;
+  pthread_t       _PicShowThread;
+  pthread_attr_t  _PicShowThreadAttr;
+  pthread_mutex_t _PicShowThreadCondMutex;
+  pthread_cond_t  _PicShowThreadCond;
 
   //////////////////////////////////////////////
   //声音相关方法 
@@ -126,9 +138,8 @@ private:
   pthread_mutex_t _AudioPacketListMutex;
   pthread_t       _AudioThread;
   pthread_attr_t  _AudioThreadAttr;
-  pthread_mutex_t _AudioThreadCountMutex;
-  pthread_cond_t  _AudioThreadCount;
-  int             _MaxPacketListLen;
+  pthread_mutex_t _AudioThreadCondMutex;
+  pthread_cond_t  _AudioThreadCond;
   double          _FrameAudioPts;
   double          _AudioClock;
   double          _CurAudioPts;
@@ -143,8 +154,8 @@ private:
   pthread_mutex_t _SubPacketListMutex;
   pthread_t       _SubThread;
   pthread_attr_t  _SubThreadAttr;
-  pthread_mutex_t _SubThreadCountMutex;
-  pthread_cond_t  _SubThreadCount;
+  pthread_mutex_t _SubThreadCondMutex;
+  pthread_cond_t  _SubThreadCond;
 
   
   int vframe_index;
