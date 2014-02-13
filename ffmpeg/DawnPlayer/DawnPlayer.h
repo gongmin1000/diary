@@ -65,9 +65,14 @@ private:
   pthread_mutex_t _ReadPacketCountMutex;
   pthread_cond_t  _ReadPacketCount;
   double          _StartPlayTime;
-  
+ 
   /////////////////////////////////////////////////
-  //视频相关方法
+  //视频显示部分
+  ///////////////////////////////////////////////// 
+  std::list<AVFrame*> _FreeFrame;
+  std::list<AVFrame*> _ShowFrame;
+  /////////////////////////////////////////////////
+  //视频解码相关方法
   //////////////////////////////////////////////////
   VideoCallBack   _VideoCallBack;
   void            *_VideoCallBackPrvData;
@@ -91,7 +96,9 @@ private:
   pthread_attr_t  _VideoThreadAttr;
   pthread_mutex_t _VideoThreadCountMutex;
   pthread_cond_t  _VideoThreadCount;
-  uint64_t        _FrameVideoPts;
+  double          _FrameVideoPts;
+  double          _LastFrameVideoPts;
+  double          _VideoClock;
   double          _CurVideoPts;
 
   //////////////////////////////////////////////
@@ -122,7 +129,8 @@ private:
   pthread_mutex_t _AudioThreadCountMutex;
   pthread_cond_t  _AudioThreadCount;
   int             _MaxPacketListLen;
-  uint64_t          _FrameAudioPts;
+  double          _FrameAudioPts;
+  double          _AudioClock;
   double          _CurAudioPts;
  
   /////////////////////////////////////////////////

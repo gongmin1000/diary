@@ -58,7 +58,7 @@ DawnPlayer::DawnPlayer():
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
-  _MaxPacketListLen(30),
+  _MaxPacketListLen(20),_VideoClock(0),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -345,7 +345,15 @@ bool DawnPlayer::Init(char* Path){
 }
 
 void DawnPlayer::Play(){
-   _StartPlayTime = av_gettime() ;
+   if( _AudioStream != -1 ){
+      printf("没有发现音频流\n");
+      pthread_mutex_init(&_AudioPacketListMutex,NULL);
+      pthread_attr_init(&_AudioThreadAttr);
+      pthread_mutex_init(&_AudioThreadCountMutex,NULL);
+      pthread_cond_init(&_AudioThreadCount,NULL);
+      pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
+   }
+
    if( _VideoStream != -1 ){
      printf("没有发现视频流\n");
      pthread_mutex_init(&_VideoPacketListMutex,NULL);
@@ -355,14 +363,6 @@ void DawnPlayer::Play(){
      pthread_create(&_VideoThread,&_VideoThreadAttr,DawnPlayer::VideoThreadRun,(void*)this);
    }
 
-   if( _AudioStream != -1 ){
-      printf("没有发现音频流\n");
-      pthread_mutex_init(&_AudioPacketListMutex,NULL);
-      pthread_attr_init(&_AudioThreadAttr);
-      pthread_mutex_init(&_AudioThreadCountMutex,NULL);
-      pthread_cond_init(&_AudioThreadCount,NULL);
-      pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
-   }
 
    if( _SubtitleStream != -1){
       printf("没有发现字幕流\n");
@@ -373,6 +373,8 @@ void DawnPlayer::Play(){
       pthread_create(&_SubThread,&_SubThreadAttr,DawnPlayer::SubThreadRun,(void*)this);
    }
 
+
+   _StartPlayTime = (double)av_gettime() / 1000000.0;
    pthread_mutex_init(&_ReadPacketCountMutex,NULL);
    pthread_cond_init(&_ReadPacketCount,NULL);
    pthread_attr_init(&_ReadPacketThreadAttr);
@@ -478,48 +480,7 @@ void DawnPlayer::VideoDecode(){
             printf("_VideoFrame->pkt_pts = %ld\n",_VideoFrame->pkt_pts);
             printf("_VideoFrame->pkt_dts = %ld\n",_VideoFrame->pkt_dts);
             printf("_StartPlayTime = %f\n",_StartPlayTime);
-	    
-            double time = av_gettime()  ;
-            _CurVideoPts = time - _StartPlayTime;
-	    printf("_CurVideoPts  = %f\n",_CurVideoPts);
-	    printf("_CurAudioPts  = %f\n",_CurAudioPts);
 
-	    double cur_pts_diff = _CurVideoPts - _CurAudioPts;
-	    printf("cur_pts_diff = %f\n",cur_pts_diff);
-
-	    if( _VideoFrame->pts != AV_NOPTS_VALUE ){
-                _FrameVideoPts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * _VideoFrame->pts;
-            }
-	    if( _FrameVideoPts == AV_NOPTS_VALUE ){
-		printf("_FrameVideoPts AV_NOPTS_VALUE\n");
-                _FrameVideoPts = _FrameAudioPts;
-            }
-	    if( _FrameAudioPts == AV_NOPTS_VALUE ){
-		printf("_FrameAudioPts AV_NOPTS_VALUE\n");
-            }
-	    printf("_FrameVideoPts = %lu,_FrameAudioPts = %lu\n",
-			_FrameVideoPts,_FrameAudioPts);
-            double frame_pts_diff = ((double)_FrameVideoPts - (double)_FrameAudioPts);
-	    printf("frame_pts_diff = %f\n",frame_pts_diff);
-
-            double va_time_diff = frame_pts_diff + cur_pts_diff;
-            //double va_time_diff = frame_pts_diff;
-            //double va_time_diff = cur_pts_diff;
-	    printf("va_time_diff = %f\n",va_time_diff);
-
-            double delay = va_time_diff ;
-	    printf("delay = %f\n",delay);
-            if( delay > 0  ){
-	        //printf("delay0 = %f\n",delay);
-	    }
-	    else{
-                //delay = frame_pts_diff*10;
-	        /*printf("delay1 = %f,_FrameVideoPts = %f,_FrameAudioPts = %f\n",
-			delay,_FrameVideoPts,_FrameAudioPts);*/
-		delay = 0;
-            }
-	    //printf("delay = %f\n",delay);
-	    usleep(delay);
 	    
             //VideoConvertYuv();
             //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
@@ -531,8 +492,49 @@ void DawnPlayer::VideoDecode(){
             //SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
 
 
-            _FrameVideoPts = _VideoFrame->pkt_pts;
         }
+
+	////////////////////////////////////////////////////////
+        //计算pts
+        double dpts = NAN;
+	_VideoFrame->pts = _VideoFrame->pkt_dts;
+        if (_VideoFrame->pts != AV_NOPTS_VALUE)
+            dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * _VideoFrame->pts;
+	_VideoFrame->sample_aspect_ratio = 
+			av_guess_sample_aspect_ratio(_FormatCtx, 
+				_FormatCtx->streams[_VideoStream], _VideoFrame);
+
+	_FrameVideoPts = (_VideoFrame->pts == AV_NOPTS_VALUE) ? NAN : _VideoFrame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
+	printf("vqpts = %f\n",_FrameVideoPts);
+        //同步视频时钟
+        double frame_delay;
+        if( _FrameVideoPts != 0  ){
+	    _VideoClock = _FrameVideoPts;
+        }
+	else{
+	    _FrameVideoPts = _VideoClock;
+	}
+	frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
+        frame_delay += _VideoFrame->repeat_pict * (frame_delay * 0.5);  
+        _VideoClock += frame_delay;  
+        printf("_VideoClock = %f\n",_VideoClock);
+        ///////////////////////////////////////////
+	//计算延时
+        double delay = _FrameVideoPts - _AudioClock;
+	printf("delay0 = %f\n",delay);
+	if(delay > 0 ){
+           delay = fabs(delay)*100000;  
+	}
+	else{
+	   delay = 0;
+	}
+	
+	printf("delay1 = %f\n",delay);
+	usleep(delay);
+	//printf("ClockDiff = %f\n",_VideoClock - _AudioClock);
+	////////////////////////////////////////////
+	
+        _LastFrameVideoPts = _VideoFrame->pkt_pts;
      
      }
 
@@ -561,6 +563,15 @@ void DawnPlayer::AudioPts()
   if( _AudioFrame->pts != AV_NOPTS_VALUE ){
      _AudioFrameNextPts = _AudioFrame->pts + _AudioFrame->nb_samples;
   }
+  _FrameAudioPts = (_AudioFrame->pts == AV_NOPTS_VALUE) ? NAN : _AudioFrame->pts * av_q2d(_FormatCtx->streams[_AudioStream]->time_base);
+  printf("aqpts = %f\n",_FrameAudioPts);
+
+  if (_AudioFrame->pts != AV_NOPTS_VALUE)
+      _AudioClock = _AudioFrame->pts * av_q2d(tb) + (double) _AudioFrame->nb_samples / _AudioFrame->sample_rate;
+  else
+      _AudioClock = NAN;
+  printf("_AudioClock = %f\n",_AudioClock);
+
 }
 
 /* return the wanted number of samples to get better sync if sync_type is video
@@ -737,12 +748,12 @@ void DawnPlayer::AudioDecode(){
       }
       if( AudioFrameFinished ){
          aframe_index++;
+         AudioPts();
     
          if( !_AudioCallBack ){
             printf("!_AudioCallBack\n");
          }
          else{
-            AudioPts();
 	    int data_size = av_samples_get_buffer_size(NULL, av_frame_get_channels(_AudioFrame),
                                                     _AudioFrame->nb_samples,
                                                     (AVSampleFormat)_AudioFrame->format, 1);
@@ -750,19 +761,16 @@ void DawnPlayer::AudioDecode(){
             unsigned char *buf;
             AudioConvert(&buf,data_size);
             _AudioCallBack(_AudioCallBackPrvData,buf,data_size);
-            printf("_AudioFrame->format = %d\n",_AudioFrame->format);
+            /*printf("_AudioFrame->format = %d\n",_AudioFrame->format);
             printf("_AudioFrame->pts = %ld\n",_AudioFrame->pts);
             printf("_AudioFrame->pkt_pts = %ld\n",_AudioFrame->pkt_pts);
             printf("_AudioFrame->pkt_dts = %ld\n",_AudioFrame->pkt_dts);
-            printf("_StartPlayTime = %f\n",_StartPlayTime);
+            printf("_StartPlayTime = %f\n",_StartPlayTime);*/
 	    
 	    
             double time = av_gettime() ;
-            _CurAudioPts = time - _StartPlayTime;
-	    printf("_CurAudioPts  = %f\n",_CurAudioPts);
 
 
-            _FrameAudioPts = _AudioFrame->pkt_pts;
          }
       }
 
