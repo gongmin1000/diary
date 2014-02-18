@@ -15,7 +15,7 @@ extern "C"{
 }
 
 #include <list>
-
+//#include <queue>
 typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
 typedef void (*VideoCallBack)(void* prv_data,AVFrame* frame);
 
@@ -64,14 +64,17 @@ private:
   AVFormatContext *_FormatCtx;
   pthread_t       _ReadPacketThread;
   pthread_attr_t  _ReadPacketThreadAttr;
-  pthread_mutex_t _ReadPacketCountMutex;
-  pthread_cond_t  _ReadPacketCount;
+  pthread_mutex_t _ReadVideoPacketCondMutex;
+  pthread_cond_t  _ReadVideoPacketCond;
+  pthread_mutex_t _ReadAudioPacketCondMutex;
+  pthread_cond_t  _ReadAudioPacketCond;
   double          _StartPlayTime;
   int             _MaxPacketListLen;
  
   /////////////////////////////////////////////////
   //视频解码相关方法
   //////////////////////////////////////////////////
+  int             _Fps;
   VideoCallBack   _VideoCallBack;
   void            *_VideoCallBackPrvData;
   int             _VideoStream;

@@ -58,7 +58,7 @@ DawnPlayer::DawnPlayer():
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
-  _MaxPacketListLen(20),_VideoClock(0),
+  _MaxPacketListLen(5),_VideoClock(0),_Fps(1000000),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -214,6 +214,10 @@ bool DawnPlayer::Init(char* Path){
     //return false;
   }
   else{
+    if(_FormatCtx->streams[_VideoStream]->avg_frame_rate.den && 
+             _FormatCtx->streams[_VideoStream]->avg_frame_rate.num){
+        _Fps = av_q2d(_FormatCtx->streams[_VideoStream]->avg_frame_rate);
+    }
     //初始化视频解码器
     _VideoCodecCtx = _FormatCtx->streams[_VideoStream]->codec;
 
@@ -328,17 +332,6 @@ bool DawnPlayer::Init(char* Path){
 }
 
 void DawnPlayer::Play(){
-   if( _AudioStream != -1 ){
-      pthread_mutex_init(&_AudioPacketListMutex,NULL);
-      pthread_attr_init(&_AudioThreadAttr);
-      pthread_mutex_init(&_AudioThreadCondMutex,NULL);
-      pthread_cond_init(&_AudioThreadCond,NULL);
-      pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
-   }
-   else{
-      printf("没有发现音频流\n");
-   }
-
    if( _VideoStream != -1 ){
      pthread_mutex_init(&_FreeFrameListMutex,NULL);
      pthread_mutex_init(&_ShowFrameListMutex,NULL);
@@ -373,10 +366,23 @@ void DawnPlayer::Play(){
       printf("没有发现字幕流\n");
    }
 
+   if( _AudioStream != -1 ){
+      pthread_mutex_init(&_AudioPacketListMutex,NULL);
+      pthread_attr_init(&_AudioThreadAttr);
+      pthread_mutex_init(&_AudioThreadCondMutex,NULL);
+      pthread_cond_init(&_AudioThreadCond,NULL);
+      pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
+   }
+   else{
+      printf("没有发现音频流\n");
+   }
 
    _StartPlayTime = (double)av_gettime() / 1000000.0;
-   pthread_mutex_init(&_ReadPacketCountMutex,NULL);
-   pthread_cond_init(&_ReadPacketCount,NULL);
+   pthread_mutex_init(&_ReadAudioPacketCondMutex,NULL);
+   pthread_cond_init(&_ReadAudioPacketCond,NULL);
+   pthread_mutex_init(&_ReadVideoPacketCondMutex,NULL);
+   pthread_cond_init(&_ReadVideoPacketCond,NULL);
+
    pthread_attr_init(&_ReadPacketThreadAttr);
    pthread_create(&_ReadPacketThread,&_ReadPacketThreadAttr,
 			DawnPlayer::ReadPacketThreadRun,(void*)this);
@@ -390,6 +396,7 @@ void DawnPlayer::PicShow(){
     }
     while(1){
         pthread_mutex_lock(&_ShowFrameListMutex);
+        printf("_ShowFrameList.size  = %ld\n",_ShowFrameList.size());
         if(_ShowFrameList.size() < 1 ){
             pthread_mutex_unlock(&_ShowFrameListMutex);
 
@@ -403,6 +410,7 @@ void DawnPlayer::PicShow(){
 
         pthread_mutex_lock(&_ShowFrameListMutex);
         AVFrame* frame = _ShowFrameList.front();
+        _ShowFrameList.pop_front();
         pthread_mutex_unlock(&_ShowFrameListMutex);
 
         /////////////////////////////////////////////////////////
@@ -432,9 +440,11 @@ void DawnPlayer::PicShow(){
                 delay = fabs(delay)*100000;  
 	    }
 	    else{
-	        delay = 10;
+	        delay = 0;
 	    }
-	
+	    if( delay > 1000000/_Fps ){
+                delay = 1000000/_Fps;
+	    }
 	    printf("delay1 = %f\n",delay);
 	    usleep(delay);
 	    ////////////////////////////////////////////
@@ -447,9 +457,6 @@ void DawnPlayer::PicShow(){
         }
 
       
-        pthread_mutex_lock(&_ShowFrameListMutex);
-        _ShowFrameList.pop_front();
-        pthread_mutex_unlock(&_ShowFrameListMutex);
         //////////////////////////////////////////
         //frame 用完换回_FreeFrameList列表
         pthread_mutex_lock(&_FreeFrameListMutex);
@@ -520,65 +527,70 @@ void DawnPlayer::VideoDecode(){
   int ret = 0;
   pthread_mutex_lock(&_FreeFrameListMutex);
   free_frame = _FreeFrameList.front();
+  _FreeFrameList.pop_front();
   pthread_mutex_unlock(&_FreeFrameListMutex);
   while(1){
-     pthread_mutex_lock(&_VideoPacketListMutex);
-     if( _VideoPacketList.size() < 1 ){
-        pthread_mutex_unlock(&_VideoPacketListMutex);
+      pthread_mutex_lock(&_VideoPacketListMutex);
+      printf("_VideoPacketList.size = %ld\n",_VideoPacketList.size());
+      if( _VideoPacketList.size() < 1 ){
+          pthread_mutex_unlock(&_VideoPacketListMutex);
 
-        pthread_mutex_lock(&_VideoThreadCondMutex);
-        pthread_cond_wait(&_VideoThreadCond,&_VideoThreadCondMutex);
-        pthread_mutex_unlock(&_VideoThreadCondMutex);
-     }
-     else{
-        pthread_mutex_unlock(&_VideoPacketListMutex);
-     }
+          pthread_mutex_lock(&_VideoThreadCondMutex);
+          pthread_cond_wait(&_VideoThreadCond,&_VideoThreadCondMutex);
+          pthread_mutex_unlock(&_VideoThreadCondMutex);
+      }
+      else{
+          pthread_mutex_unlock(&_VideoPacketListMutex);
+      }
 
-     pthread_mutex_lock(&_VideoPacketListMutex);
-     AVPacket packet = _VideoPacketList.front();
-     pthread_mutex_unlock(&_VideoPacketListMutex);
+      pthread_mutex_lock(&_VideoPacketListMutex);
+      AVPacket packet = _VideoPacketList.front();
+      _VideoPacketList.pop_front();
+      pthread_mutex_unlock(&_VideoPacketListMutex);
 
+      pthread_mutex_lock(&_ReadVideoPacketCondMutex);
+      pthread_cond_signal(&_ReadVideoPacketCond);
+      pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
 
-     //////////////////////////////////////////////////////////
-     //解码
-     avcodec_get_frame_defaults(free_frame);
-     ret = avcodec_decode_video2(_VideoCodecCtx, free_frame, &VideoFrameFinished, &packet);
-     if( ret < 0 ){
-        printf("avcodec_decode_video2 error ret = %d\n",ret);
-     }
-     if( VideoFrameFinished ) {
-	////////////////////////////////////////////////////////
-        //计算pts
-        double dpts = NAN;
-	free_frame->pts = free_frame->pkt_dts;
-        if (free_frame->pts != AV_NOPTS_VALUE)
-            dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * free_frame->pts;
-	free_frame->sample_aspect_ratio = 
+      //////////////////////////////////////////////////////////
+      //解码
+      avcodec_get_frame_defaults(free_frame);
+      ret = avcodec_decode_video2(_VideoCodecCtx, free_frame, &VideoFrameFinished, &packet);
+      if( ret < 0 ){
+          printf("avcodec_decode_video2 error ret = %d\n",ret);
+      }
+      if( VideoFrameFinished ) {
+         ///////////////////////////////////////////////////////
+         //计算pts
+         double dpts = NAN;
+	 free_frame->pts = free_frame->pkt_dts;
+         if (free_frame->pts != AV_NOPTS_VALUE)
+             dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * free_frame->pts;
+	 free_frame->sample_aspect_ratio = 
 			av_guess_sample_aspect_ratio(_FormatCtx, 
 				_FormatCtx->streams[_VideoStream], free_frame);
 
-	_FrameVideoPts = (free_frame->pts == AV_NOPTS_VALUE) ? NAN : free_frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
-	printf("vqpts = %f\n",_FrameVideoPts);
-        //同步视频时钟
-        double frame_delay;
-        if( _FrameVideoPts != 0  ){
+	 _FrameVideoPts = (free_frame->pts == AV_NOPTS_VALUE) ? NAN : free_frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
+	 printf("vqpts = %f\n",_FrameVideoPts);
+         //同步视频时钟
+         double frame_delay;
+         if( _FrameVideoPts != 0  ){
 	    _VideoClock = _FrameVideoPts;
-        }
-	else{
-	    _FrameVideoPts = _VideoClock;
-	}
-        free_frame->pts = _FrameVideoPts;
-	frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
-        frame_delay += free_frame->repeat_pict * (frame_delay * 0.5);  
-        _VideoClock += frame_delay;  
-        printf("_VideoClock = %f\n",_VideoClock);
-	////////////////////////////////////////////
+         } 
+	 else{
+	     _FrameVideoPts = _VideoClock;
+	 }
+         free_frame->pts = _FrameVideoPts;
+	 frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
+         frame_delay += free_frame->repeat_pict * (frame_delay * 0.5);  
+         _VideoClock += frame_delay;  
+         printf("_VideoClock = %f\n",_VideoClock);
+	 ////////////////////////////////////////////
 	
-        _LastFrameVideoPts = free_frame->pkt_pts;
+         _LastFrameVideoPts = free_frame->pkt_pts;
 
-         pthread_mutex_lock(&_FreeFrameListMutex);
-         _FreeFrameList.pop_front();
-         pthread_mutex_unlock(&_FreeFrameListMutex);
+         /*VideoConvertRgb(free_frame);
+         _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);*/
 
          pthread_mutex_lock(&_ShowFrameListMutex);
          _ShowFrameList.push_back(free_frame);
@@ -587,16 +599,24 @@ void DawnPlayer::VideoDecode(){
          pthread_mutex_lock(&_PicShowThreadCondMutex);
          pthread_cond_signal(&_PicShowThreadCond);
          pthread_mutex_unlock(&_PicShowThreadCondMutex);
-     
-         pthread_mutex_lock(&_FreeFrameListMutex);
-         free_frame = _FreeFrameList.front();
-         pthread_mutex_unlock(&_FreeFrameListMutex);
+    
+         
+	 while( 1 ){
+             pthread_mutex_lock(&_FreeFrameListMutex);
+             //printf("_FreeFrameList.size = %ld\n",_FreeFrameList.size());
+             if( _FreeFrameList.size() < 1 ){
+             	 pthread_mutex_unlock(&_FreeFrameListMutex);
+		 usleep(5000);
+             }
+	     else{
+                 free_frame = _FreeFrameList.front();
+                 _FreeFrameList.pop_front();
+                 pthread_mutex_unlock(&_FreeFrameListMutex);
+ 		 break;
+	     }
+	 }
      }
 
-
-     pthread_mutex_lock(&_VideoPacketListMutex);
-     _VideoPacketList.pop_front();
-     pthread_mutex_unlock(&_VideoPacketListMutex);
 
      av_free_packet(&packet);
 
@@ -769,6 +789,7 @@ void DawnPlayer::AudioDecode(){
    while(1){
       pthread_mutex_lock(&_AudioPacketListMutex);
       if( _AudioPacketList.size() < 1 ){
+          printf("_AudioPacketList.size = %ld\n",_AudioPacketList.size());
           pthread_mutex_unlock(&_AudioPacketListMutex);
 
           pthread_mutex_lock(&_AudioThreadCondMutex);
@@ -781,8 +802,12 @@ void DawnPlayer::AudioDecode(){
 
       pthread_mutex_lock(&_AudioPacketListMutex);
       AVPacket  packet = _AudioPacketList.front();
+      _AudioPacketList.pop_front();
       pthread_mutex_unlock(&_AudioPacketListMutex);
 
+      pthread_mutex_lock(&_ReadAudioPacketCondMutex);
+      pthread_cond_signal(&_ReadAudioPacketCond);
+      pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
 
       /*if( packet.stream_index != _AudioStream ){
          printf("packet.stream_index = %d\n",packet.stream_index);
@@ -827,14 +852,6 @@ void DawnPlayer::AudioDecode(){
          }
       }
 
-      pthread_mutex_lock(&_AudioPacketListMutex);
-      _AudioPacketList.pop_front();
-      pthread_mutex_unlock(&_AudioPacketListMutex);
-
-      pthread_mutex_lock(&_ReadPacketCountMutex);
-      pthread_cond_signal(&_ReadPacketCount);
-      pthread_mutex_unlock(&_ReadPacketCountMutex);
-
       av_free_packet(&packet);
 
    }
@@ -861,6 +878,7 @@ void DawnPlayer::SubtitleDecode(){
 
      pthread_mutex_lock(&_SubPacketListMutex);
      AVPacket packet = _SubPacketList.front();
+     _SubPacketList.pop_front();
      pthread_mutex_unlock(&_SubPacketListMutex);
 
      avcodec_decode_subtitle2(_SubtitleCodecCtx, &sub,&SubFrameFinished, &packet);
@@ -869,9 +887,6 @@ void DawnPlayer::SubtitleDecode(){
      }
      avsubtitle_free(&sub);
 
-     pthread_mutex_lock(&_SubPacketListMutex);
-     _SubPacketList.pop_front();
-     pthread_mutex_unlock(&_SubPacketListMutex);
 
      av_free_packet(&packet);
   }
@@ -884,15 +899,21 @@ void DawnPlayer::ReadPacket(){
 
   while( 1 ) {
     pthread_mutex_lock(&_AudioPacketListMutex);
-    if(_AudioPacketList.size() > _MaxPacketListLen ){
-    	pthread_mutex_unlock(&_AudioPacketListMutex);
-
-	pthread_mutex_lock(&_ReadPacketCountMutex);
-        pthread_cond_wait(&_ReadPacketCount,&_ReadPacketCountMutex);
-	pthread_mutex_unlock(&_ReadPacketCountMutex);
+    bool is_wait = _AudioPacketList.size() > _MaxPacketListLen;
+    pthread_mutex_unlock(&_AudioPacketListMutex);
+    if( is_wait ){
+	pthread_mutex_lock(&_ReadAudioPacketCondMutex);
+        pthread_cond_wait(&_ReadAudioPacketCond,&_ReadAudioPacketCondMutex);
+	pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
     }
-    else{
-        pthread_mutex_unlock(&_AudioPacketListMutex);
+
+    pthread_mutex_lock(&_VideoPacketListMutex);
+    is_wait =  _VideoPacketList.size() > _MaxPacketListLen ;
+    pthread_mutex_unlock(&_VideoPacketListMutex);
+    if( is_wait ){
+	pthread_mutex_lock(&_ReadVideoPacketCondMutex);
+        pthread_cond_wait(&_ReadVideoPacketCond,&_ReadVideoPacketCondMutex);
+	pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
     }
 
     ret = av_read_frame(_FormatCtx, &packet);
@@ -925,7 +946,7 @@ void DawnPlayer::ReadPacket(){
     else if( _AudioCodecCtx && packet.stream_index == _AudioStream ){
       pthread_mutex_lock(&_AudioPacketListMutex);
       _AudioPacketList.push_back(packet);
-      //printf("add audio packet,size = %ld\n",_AudioPacketList.size());
+      printf("add audio packet,size = %ld\n",_AudioPacketList.size());
       pthread_mutex_unlock(&_AudioPacketListMutex);
 
       pthread_mutex_lock(&_AudioThreadCondMutex);
@@ -1030,16 +1051,18 @@ int main(int argc,char* argv[]){
       
     }
     
-    //sleep(10);
+    
+    memset(&parameter,0,sizeof(parameter));
     player->GetAudioParameter(&parameter);
     ss.format = PA_SAMPLE_S16LE;//PA_SAMPLE_FLOAT32LE(晓松说用)
     ss.channels = parameter._channels;
     ss.rate = parameter._sample_rate;
 
-    pa_channel_map_init_auto(&pacmap, parameter._channels,
+    if( ss.channels > 0 ){
+        pa_channel_map_init_auto(&pacmap, parameter._channels,
                                         PA_CHANNEL_MAP_WAVEEX);
 
-    s = pa_simple_new(NULL,               // Use the default server.
+        s = pa_simple_new(NULL,               // Use the default server.
                   argv[0],           // Our application's name.
                   PA_STREAM_PLAYBACK,
                   NULL,               // Use the default device.
@@ -1050,12 +1073,12 @@ int main(int argc,char* argv[]){
                   &error               // Ignore error code.
                   );
 
-    if( !s ){
-      printf("error pulseaudio = %s\n",pa_strerror(error));
-      return 0;
+        if( !s ){
+            printf("error pulseaudio = %s\n",pa_strerror(error));
+            return 0;
+        }
+        player->SetAudioCallBack(s,AudioPlay);
     }
-    player->SetAudioCallBack(s,AudioPlay);
-
     /////////////////////////////////////////////////////
     //
     VideoParameter videoparameter;
