@@ -58,7 +58,7 @@ DawnPlayer::DawnPlayer():
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
-  _MaxPacketListLen(20),_VideoClock(0),
+  _MaxPacketListLen(20),_VideoClock(0),_Fps(1),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -471,28 +471,17 @@ void DawnPlayer::VideoDecode(){
      }
      if( VideoFrameFinished ) {
         vframe_index++;
-        if( _VideoCallBack ){
-            printf("VideoCallBack\n");
-            printf("_VideoFrame->width = %d,_VideoFrame->height = %d\n",_VideoFrame->width,_VideoFrame->height);
+        //VideoConvertYuv();
+        VideoConvertRgb();
+
+        printf("VideoCallBack\n");
+        printf("_VideoFrame->width = %d,_VideoFrame->height = %d\n",_VideoFrame->width,_VideoFrame->height);
 	   
-            printf("_VideoFrame->format = %d\n",_VideoFrame->format);
-            printf("_VideoFrame->pts = %ld\n",_VideoFrame->pts);
-            printf("_VideoFrame->pkt_pts = %ld\n",_VideoFrame->pkt_pts);
-            printf("_VideoFrame->pkt_dts = %ld\n",_VideoFrame->pkt_dts);
-            printf("_StartPlayTime = %f\n",_StartPlayTime);
-
-	    
-            //VideoConvertYuv();
-            //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
-
-            VideoConvertRgb();
-            _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
-	    
-
-            //SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
-
-
-        }
+        printf("_VideoFrame->format = %d\n",_VideoFrame->format);
+        printf("_VideoFrame->pts = %ld\n",_VideoFrame->pts);
+        printf("_VideoFrame->pkt_pts = %ld\n",_VideoFrame->pkt_pts);
+        printf("_VideoFrame->pkt_dts = %ld\n",_VideoFrame->pkt_dts);
+        printf("_StartPlayTime = %f\n",_StartPlayTime);
 
 	////////////////////////////////////////////////////////
         //计算pts
@@ -520,18 +509,49 @@ void DawnPlayer::VideoDecode(){
         printf("_VideoClock = %f\n",_VideoClock);
         ///////////////////////////////////////////
 	//计算延时
-        double delay = _FrameVideoPts - _AudioClock;
-	printf("delay0 = %f\n",delay);
+        double delay0 = _FrameVideoPts - _AudioClock;
+	/*printf("delay0 = %f\n",delay);
 	if(delay > 0 ){
            delay = fabs(delay)*100000;  
 	}
 	else{
 	   delay = 0;
 	}
-	
 	printf("delay1 = %f\n",delay);
 	usleep(delay);
-	//printf("ClockDiff = %f\n",_VideoClock - _AudioClock);
+	
+	printf("ClockDiff = %f\n",_VideoClock - _AudioClock);*/
+        double time = av_gettime();
+        delay0 = delay0*100000;  
+        printf("delay0 = %6.3f\n",delay0);
+        double delay1 = _NexFrameTime - time;
+        printf("delay1 = %6.3f,frame_type = %d\n",delay1,_VideoFrame->pict_type);
+        if(delay0 > 0 ){
+	    if(delay1 > 0 ){
+                if( delay1 > delay0 ){
+                    printf("delay2 = %6.3f\n",delay1);
+	            usleep(delay1);
+		}
+		else{
+		    usleep(delay0);
+		}
+            }
+	}
+
+        if( _VideoCallBack ){
+            //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
+
+            _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
+	    
+
+            //SaveFrame(_FrameRgb, _VideoFrame->width, _VideoFrame->height, vframe_index);
+	}
+
+        time = av_gettime();
+        _NexFrameTime = time + 40000;
+        double frame_time_diff = time - _PreFrameTime;
+	printf("frame_time_diff = %f\n",frame_time_diff);
+        _PreFrameTime = time;
 	////////////////////////////////////////////
 	
         _LastFrameVideoPts = _VideoFrame->pkt_pts;
@@ -976,17 +996,17 @@ int main(int argc,char* argv[]){
       return 0;
       
     }
-    
-    //sleep(10);
+   
+    memset(&parameter,0,sizeof(parameter)); 
     player->GetAudioParameter(&parameter);
     ss.format = PA_SAMPLE_S16LE;//PA_SAMPLE_FLOAT32LE(晓松说用)
     ss.channels = parameter._channels;
     ss.rate = parameter._sample_rate;
-
-    pa_channel_map_init_auto(&pacmap, parameter._channels,
+    if( ss.channels > 0 ){
+        pa_channel_map_init_auto(&pacmap, parameter._channels,
                                         PA_CHANNEL_MAP_WAVEEX);
 
-    s = pa_simple_new(NULL,               // Use the default server.
+        s = pa_simple_new(NULL,               // Use the default server.
                   argv[0],           // Our application's name.
                   PA_STREAM_PLAYBACK,
                   NULL,               // Use the default device.
@@ -997,12 +1017,12 @@ int main(int argc,char* argv[]){
                   &error               // Ignore error code.
                   );
 
-    if( !s ){
-      printf("error pulseaudio = %s\n",pa_strerror(error));
-      return 0;
+        if( !s ){
+            printf("error pulseaudio = %s\n",pa_strerror(error));
+            return 0;
+        }
+        player->SetAudioCallBack(s,AudioPlay);
     }
-    player->SetAudioCallBack(s,AudioPlay);
-
     /////////////////////////////////////////////////////
     //
     VideoParameter videoparameter;

@@ -66,14 +66,12 @@ private:
   pthread_cond_t  _ReadPacketCount;
   double          _StartPlayTime;
  
-  /////////////////////////////////////////////////
-  //视频显示部分
-  ///////////////////////////////////////////////// 
-  std::list<AVFrame*> _FreeFrame;
-  std::list<AVFrame*> _ShowFrame;
+  double          _PreFrameTime;
+  double          _NexFrameTime;
   /////////////////////////////////////////////////
   //视频解码相关方法
   //////////////////////////////////////////////////
+  int             _Fps;
   VideoCallBack   _VideoCallBack;
   void            *_VideoCallBackPrvData;
   int             _VideoStream;
