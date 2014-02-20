@@ -1,6 +1,6 @@
  //g++ -g -o DawnPlayer -D__STDC_CONSTANT_MACROS   DawnPlayer.cpp -I/home/dongrui/program/ffmpeg/include -L/home/dongrui/program/ffmpeg/lib   -lavformat -lavcodec  -lavdevice  -lavfilter  -lavutil  -lswresample  -lswscale -lz -lpthread -lboost_thread-mt -lSDL2 
 //-fpermissive /usr/lib/x86_64-linux-gnu/libpulse-simple.so /usr/lib/x86_64-linux-gnu/libpulse.so
-#include "DawnPlayer.h"
+#include <DawnPlayer.h>
 static void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame)
 
 {
@@ -53,7 +53,7 @@ DawnPlayer::DawnPlayer():
   _FrameRgb(NULL),_RgbBuffer(NULL),_RgbConvertCtx(NULL),
   _FrameYuv(NULL),_YuvBuffer(NULL),_YuvConvertCtx(NULL),
   _VideoCodecCtx(NULL),_VideoCodec(NULL),
-  _AudioCodecCtx(NULL),_AudioCodec(NULL),
+  _AudioCodecCtx(NULL),_AudioCodec(NULL),_AudioClock(0),
   _SubtitleCodecCtx(NULL),_SubtitleCodec(NULL),
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
@@ -275,11 +275,6 @@ bool DawnPlayer::Init(char* Path){
       _FrameYuv->width = _VideoCodecCtx->width;
       _FrameYuv->height = _VideoCodecCtx->height;
     }
-    /*pthread_mutex_init(&_VideoPacketListMutex,NULL);
-    pthread_attr_init(&_VideoThreadAttr);
-    pthread_mutex_init(&_VideoThreadCountMutex,NULL);
-    pthread_cond_init(&_VideoThreadCount,NULL);
-    pthread_create(&_VideoThread,&_VideoThreadAttr,DawnPlayer::VideoThreadRun,(void*)this);*/
   }
   
   
@@ -306,12 +301,6 @@ bool DawnPlayer::Init(char* Path){
     if( _AudioFrame == NULL ){
       return false;
     }
-    /*pthread_mutex_init(&_AudioPacketListMutex,NULL);
-    pthread_attr_init(&_AudioThreadAttr);
-    pthread_mutex_init(&_AudioThreadCountMutex,NULL);
-    pthread_cond_init(&_AudioThreadCount,NULL);
-    pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
-    */
   }
   
   //初始化字幕解码器
@@ -327,19 +316,9 @@ bool DawnPlayer::Init(char* Path){
       printf("没有发现字幕解码器\n");
       return false;
     }
-    /*pthread_mutex_init(&_SubPacketListMutex,NULL);
-    pthread_attr_init(&_SubThreadAttr);
-    pthread_mutex_init(&_SubThreadCountMutex,NULL);
-    pthread_cond_init(&_SubThreadCount,NULL);
-    pthread_create(&_SubThread,&_SubThreadAttr,DawnPlayer::SubThreadRun,(void*)this);*/
   }
 
   
-  /*pthread_mutex_init(&_ReadPacketCountMutex,NULL);
-  pthread_cond_init(&_ReadPacketCount,NULL);
-  pthread_attr_init(&_ReadPacketThreadAttr);
-  pthread_create(&_ReadPacketThread,&_ReadPacketThreadAttr,
- 			DawnPlayer::ReadPacketThreadRun,(void*)this);*/
 
   if( _VideoStream == -1 &&
       _AudioStream == -1 &&
@@ -514,26 +493,18 @@ void DawnPlayer::VideoDecode(){
         printf("_VideoClock = %f\n",_VideoClock);
         ///////////////////////////////////////////
 	//计算延时
-        double delay0 = _FrameVideoPts - _AudioClock;
-	/*printf("delay0 = %f\n",delay);
-	if(delay > 0 ){
-           delay = fabs(delay)*100000;  
-	}
-	else{
-	   delay = 0;
-	}
-	printf("delay1 = %f\n",delay);
-	usleep(delay);
-	
-	printf("ClockDiff = %f\n",_VideoClock - _AudioClock);*/
+        double delay0 = 0;
+        if( _AudioClock != 0 ){
+            delay0 = _FrameVideoPts - _AudioClock;
+        }
         double time = av_gettime();
         delay0 = delay0*100000;  
         printf("delay0 = %6.3f\n",delay0);
         double delay1 = _NexFrameTime - time;
         printf("delay1 = %6.3f,frame_type = %d\n",delay1,_VideoFrame->pict_type);
-        if(delay0 > 0 ){
+        if(delay0 >= 0 ){
 	    if(delay1 > 0 ){
-                if( delay1 > delay0 ){
+                if( delay1 >= delay0 ){
                     printf("delay2 = %6.3f\n",delay1);
 	            usleep(delay1);
 		}
@@ -922,123 +893,10 @@ void DawnPlayer::ReadPacket(){
 
 }
 
-#include <unistd.h>
-#include <SDL2/SDL.h>  
-#include <SDL2/SDL_thread.h>
-SDL_Texture    *bmp = NULL;  
-SDL_Window     *screen = NULL;  
-SDL_Rect        rect;
-SDL_Renderer *renderer;
-void VideoPlay(void* prv_data,AVFrame* frame){
-    static bool sdl_init = false;
-    if( sdl_init == false ){
-        if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
-            fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());  
-            exit(1);  
-        }
-        screen = SDL_CreateWindow("My Game Window",  
-                              SDL_WINDOWPOS_UNDEFINED,  
-                              SDL_WINDOWPOS_UNDEFINED,  
-                              frame->width,  frame->height,  
-                              SDL_WINDOW_OPENGL);  
-        renderer = SDL_CreateRenderer(screen, -1, 0);  
-      
-      
-        if(!screen) {  
-            fprintf(stderr, "SDL: could not set video mode - exiting\n");  
-            exit(1);  
-        }  
-        bmp = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGB24,
-				SDL_TEXTUREACCESS_STREAMING,
-				frame->width,frame->height);
-        sdl_init = true;
-    }
-
-    rect.x = 0;  
-    rect.y = 0;  
-    rect.w = frame->width;  
-    rect.h = frame->height;
-
-    SDL_UpdateTexture( bmp, &rect, frame->data[0], frame->linesize[0] );
-    SDL_RenderClear( renderer );  
-    SDL_RenderCopy( renderer, bmp, &rect, &rect );  
-    SDL_RenderPresent( renderer );
-
-    usleep(10);
+void DawnPlayer::Seek(long offset,int offset_type,int whence){
+    //av_seek_frame
 }
 
-#include <pulse/simple.h>
-#include <pulse/error.h>
-void AudioPlay(void* prv_data,unsigned char* buf,int len){
-	int error;
-	if (pa_simple_write((pa_simple*)prv_data, buf, (size_t) len, &error) < 0) {
-            printf("pa_simple_write() failed: %s\n", pa_strerror(error));
-            return ;
-        }	
+void DawnPlayer::SetPlaySpeed(int speed,int orientation){
 }
 
-
-#include <unistd.h>
-int main(int argc,char* argv[]){
-  char buf[1024];
-  AudioParameter parameter;
-  DawnPlayer *player = NULL;
-  av_register_all();
-
-  int error;
-  pa_simple *s;
-  pa_sample_spec ss;
-  pa_channel_map pacmap; 
-    /*if( player ){
-      delete player;
-    }*/
-    player = new DawnPlayer();
-    sprintf(buf,"%s",argv[1]);
-    //sprintf(buf,"%s%d%s","/home/dongrui/test_",i,".ts");
-    //sprintf(buf,"%s%s","/home/dongrui/","7907.flv");//PA_SAMPLE_S16NE
-    //sprintf(buf,"%s%s","/home/dongrui/","晓松说.ts");//PA_SAMPLE_FLOAT32LE
-    if( !player->Init(buf) ){
-      return 0;
-      
-    }
-   
-    memset(&parameter,0,sizeof(parameter)); 
-    player->GetAudioParameter(&parameter);
-    ss.format = PA_SAMPLE_S16LE;//PA_SAMPLE_FLOAT32LE(晓松说用)
-    ss.channels = parameter._channels;
-    ss.rate = parameter._sample_rate;
-    if( ss.channels > 0 ){
-        pa_channel_map_init_auto(&pacmap, parameter._channels,
-                                        PA_CHANNEL_MAP_WAVEEX);
-
-        s = pa_simple_new(NULL,               // Use the default server.
-                  argv[0],           // Our application's name.
-                  PA_STREAM_PLAYBACK,
-                  NULL,               // Use the default device.
-                  "Audio",            // Description of our stream.
-                  &ss,                // Our sample format.
-                  &pacmap,               // Use default channel map
-                  NULL,               // Use default buffering attributes.
-                  &error               // Ignore error code.
-                  );
-
-        if( !s ){
-            printf("error pulseaudio = %s\n",pa_strerror(error));
-            return 0;
-        }
-        player->SetAudioCallBack(s,AudioPlay);
-    }
-    /////////////////////////////////////////////////////
-    //
-    VideoParameter videoparameter;
-    player->GetVideoParameter(&videoparameter);
-    player->SetVideoCallBack(NULL,VideoPlay);    
-    player->Play();
-    sleep(1000);
-    SDL_DestroyTexture(bmp); 
-    if (s){
-        pa_simple_free(s); 
-    }
-    
- 
-}

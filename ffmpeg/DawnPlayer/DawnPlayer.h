@@ -2,6 +2,8 @@
 #define __DAWN_PLAYER_H__
 #include <unistd.h>
 #include <pthread.h>
+#include <list>
+
 
 extern "C"{
 #include <libavcodec/avcodec.h>
@@ -14,7 +16,7 @@ extern "C"{
 #include <libavutil/time.h>
 }
 
-#include <list>
+
 
 typedef void (*AudioCallBack)(void* prv_data,unsigned char* buf,int len);
 typedef void (*VideoCallBack)(void* prv_data,AVFrame* frame);
@@ -32,16 +34,19 @@ struct VideoParameter{
 	int _height;
 	
 };
+enum PlaySpeed{
+   X1SPEED = 0,
+   X2SPEED,
+   X3SPEED,
+   X4SPEED,
+   X8SPEED,
+   ONESTEP_SPEED
+};
 
 class DawnPlayer{
 public:
   DawnPlayer();
   ~DawnPlayer();
-  static void *VideoThreadRun(void* arg);
-  static void *AudioThreadRun(void* arg);
-  static void *SubThreadRun(void* arg);
-  static void *ReadPacketThreadRun(void* arg);
-
 
   bool Init(char* Path);
   void GetAudioParameter(AudioParameter* parameter);
@@ -49,7 +54,22 @@ public:
   void SetAudioCallBack(void* data,AudioCallBack callback);
   void SetVideoCallBack(void* data,VideoCallBack callback);
   void Play();
+  /*
+  *offset_type,跳转类型，0为按帧，1为按ms
+  *offset,跳转量
+  *whence，跳转方向,SEEK_SET, SEEK_CUR,  SEEK_END
+  */
+  void Seek(long offset,int offset_type,int whence);
+  /*
+  *speed,播放速度
+  *orientation,播放方向,0前进，1后退
+  */
+  void SetPlaySpeed(int speed,int orientation);
 protected:
+  static void *VideoThreadRun(void* arg);
+  static void *AudioThreadRun(void* arg);
+  static void *SubThreadRun(void* arg);
+  static void *ReadPacketThreadRun(void* arg);
   void VideoDecode();
   void AudioDecode();
   void SubtitleDecode();
@@ -65,12 +85,13 @@ private:
   pthread_mutex_t _ReadPacketCountMutex;
   pthread_cond_t  _ReadPacketCount;
   double          _StartPlayTime;
- 
-  double          _PreFrameTime;
-  double          _NexFrameTime;
+
+  PlaySpeed       _PlaySpeed; 
   /////////////////////////////////////////////////
   //视频解码相关方法
   //////////////////////////////////////////////////
+  double          _PreFrameTime;
+  double          _NexFrameTime;
   int             _Fps;
   int             _FrameStepTime;
   VideoCallBack   _VideoCallBack;
