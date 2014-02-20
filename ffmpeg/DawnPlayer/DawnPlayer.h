@@ -72,6 +72,7 @@ private:
   //视频解码相关方法
   //////////////////////////////////////////////////
   int             _Fps;
+  int             _FrameStepTime;
   VideoCallBack   _VideoCallBack;
   void            *_VideoCallBackPrvData;
   int             _VideoStream;

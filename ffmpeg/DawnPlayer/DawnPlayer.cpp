@@ -58,7 +58,7 @@ DawnPlayer::DawnPlayer():
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
-  _MaxPacketListLen(20),_VideoClock(0),_Fps(1),
+  _MaxPacketListLen(20),_VideoClock(0),_Fps(1),_FrameStepTime(1),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -212,6 +212,11 @@ bool DawnPlayer::Init(char* Path){
     //return false;
   }
   else{
+    if(_FormatCtx->streams[_VideoStream]->avg_frame_rate.den &&
+              _FormatCtx->streams[_VideoStream]->avg_frame_rate.num){
+        _Fps = av_q2d(_FormatCtx->streams[_VideoStream]->avg_frame_rate);
+        _FrameStepTime = 1000000 / _Fps;
+    }
     //初始化视频解码器
     _VideoCodecCtx = _FormatCtx->streams[_VideoStream]->codec;
 
@@ -548,7 +553,7 @@ void DawnPlayer::VideoDecode(){
 	}
 
         time = av_gettime();
-        _NexFrameTime = time + 40000;
+        _NexFrameTime = time + _FrameStepTime;
         double frame_time_diff = time - _PreFrameTime;
 	printf("frame_time_diff = %f\n",frame_time_diff);
         _PreFrameTime = time;
