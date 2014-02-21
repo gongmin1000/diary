@@ -58,7 +58,7 @@ DawnPlayer::DawnPlayer():
   _AudioFrame(NULL),_StartPlayTime(0),_FrameAudioPts(0),_CurAudioPts(0),
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
-  _MaxPacketListLen(5),_VideoClock(0),_Fps(1000000),
+  _MaxPacketListLen(20),_VideoClock(0),_Fps(1000000),_FrameStepTime(40000),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -217,6 +217,7 @@ bool DawnPlayer::Init(char* Path){
     if(_FormatCtx->streams[_VideoStream]->avg_frame_rate.den && 
              _FormatCtx->streams[_VideoStream]->avg_frame_rate.num){
         _Fps = av_q2d(_FormatCtx->streams[_VideoStream]->avg_frame_rate);
+        _FrameStepTime = 1000000/_Fps;
     }
     //初始化视频解码器
     _VideoCodecCtx = _FormatCtx->streams[_VideoStream]->codec;
@@ -238,6 +239,17 @@ bool DawnPlayer::Init(char* Path){
         if( frame == NULL ){
             return false;
         }
+        _YuvNumBytes = avpicture_get_size(AV_PIX_FMT_YUV420P, 
+				  _VideoCodecCtx->width,
+				  _VideoCodecCtx->height);
+  
+        _YuvBuffer = (uint8_t*)av_malloc(_YuvNumBytes);
+
+        avpicture_fill( (AVPicture *)frame, _YuvBuffer, AV_PIX_FMT_YUV420P,
+                      _VideoCodecCtx->width, _VideoCodecCtx->height);
+        frame->width = _VideoCodecCtx->width;
+        frame->height = _VideoCodecCtx->height;
+
         _FreeFrameList.push_back(frame);
     }
 
@@ -415,7 +427,6 @@ void DawnPlayer::PicShow(){
 
         /////////////////////////////////////////////////////////
         //显示视频
-        vframe_index++;
         if( _VideoCallBack ){
             printf("VideoCallBack\n");
             printf("frame->width = %d,frame->height = %d\n",frame->width,frame->height);
@@ -451,7 +462,7 @@ void DawnPlayer::PicShow(){
 
             //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
             _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
-            SaveFrame(_FrameRgb, frame->width, frame->height, vframe_index);
+            //SaveFrame(_FrameRgb, frame->width, frame->height, frame->pkt_pts);
 
 
         }
@@ -522,13 +533,16 @@ void  DawnPlayer::VideoConvertYuv(AVFrame *src_frame)
 }
 
 void DawnPlayer::VideoDecode(){
+  AVFrame* frame = avcodec_alloc_frame();
   AVFrame* free_frame;
   int VideoFrameFinished;//视频帧结束标志
   int ret = 0;
+
   pthread_mutex_lock(&_FreeFrameListMutex);
   free_frame = _FreeFrameList.front();
   _FreeFrameList.pop_front();
   pthread_mutex_unlock(&_FreeFrameListMutex);
+
   while(1){
       pthread_mutex_lock(&_VideoPacketListMutex);
       printf("_VideoPacketList.size = %ld\n",_VideoPacketList.size());
@@ -554,23 +568,25 @@ void DawnPlayer::VideoDecode(){
 
       //////////////////////////////////////////////////////////
       //解码
-      avcodec_get_frame_defaults(free_frame);
-      ret = avcodec_decode_video2(_VideoCodecCtx, free_frame, &VideoFrameFinished, &packet);
+      avcodec_get_frame_defaults(frame);
+      ret = avcodec_decode_video2(_VideoCodecCtx, frame, &VideoFrameFinished, &packet);
       if( ret < 0 ){
           printf("avcodec_decode_video2 error ret = %d\n",ret);
+          av_free_packet(&packet);
+	  continue;
       }
       if( VideoFrameFinished ) {
          ///////////////////////////////////////////////////////
          //计算pts
          double dpts = NAN;
-	 free_frame->pts = free_frame->pkt_dts;
-         if (free_frame->pts != AV_NOPTS_VALUE)
-             dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * free_frame->pts;
-	 free_frame->sample_aspect_ratio = 
+	 frame->pts = frame->pkt_dts;
+         if (frame->pts != AV_NOPTS_VALUE)
+             dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * frame->pts;
+	 frame->sample_aspect_ratio = 
 			av_guess_sample_aspect_ratio(_FormatCtx, 
-				_FormatCtx->streams[_VideoStream], free_frame);
+				_FormatCtx->streams[_VideoStream], frame);
 
-	 _FrameVideoPts = (free_frame->pts == AV_NOPTS_VALUE) ? NAN : free_frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
+	 _FrameVideoPts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
 	 printf("vqpts = %f\n",_FrameVideoPts);
          //同步视频时钟
          double frame_delay;
@@ -580,17 +596,25 @@ void DawnPlayer::VideoDecode(){
 	 else{
 	     _FrameVideoPts = _VideoClock;
 	 }
-         free_frame->pts = _FrameVideoPts;
+         frame->pts = _FrameVideoPts;
 	 frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
-         frame_delay += free_frame->repeat_pict * (frame_delay * 0.5);  
+         frame_delay += frame->repeat_pict * (frame_delay * 0.5);  
          _VideoClock += frame_delay;  
          printf("_VideoClock = %f\n",_VideoClock);
+         //拷贝到free_frame
+         //memcpy(free_frame,frame,sizeof(AVFrame));
+         av_picture_copy((AVPicture *)free_frame,(const AVPicture *)frame,
+                         (AVPixelFormat)frame->format, frame->width, frame->height);
+         free_frame->format = frame->format;
+         free_frame->width = frame->width;
+         free_frame->height = frame->height;
+         free_frame->pts = frame->pts;
+         free_frame->pkt_pts = vframe_index++;
+
 	 ////////////////////////////////////////////
 	
-         _LastFrameVideoPts = free_frame->pkt_pts;
+         _LastFrameVideoPts = frame->pkt_pts;
 
-         /*VideoConvertRgb(free_frame);
-         _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);*/
 
          pthread_mutex_lock(&_ShowFrameListMutex);
          _ShowFrameList.push_back(free_frame);
@@ -615,12 +639,13 @@ void DawnPlayer::VideoDecode(){
  		 break;
 	     }
 	 }
-     }
+      }
 
 
-     av_free_packet(&packet);
+      av_free_packet(&packet);
 
   }
+  av_frame_free(&frame);
 }
 
 
