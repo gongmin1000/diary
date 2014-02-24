@@ -425,8 +425,13 @@ void DawnPlayer::PicShow(){
         _ShowFrameList.pop_front();
         pthread_mutex_unlock(&_ShowFrameListMutex);
 
+        pthread_mutex_lock(&_ReadVideoPacketCondMutex);
+        pthread_cond_signal(&_ReadVideoPacketCond);
+        pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
+
         /////////////////////////////////////////////////////////
         //显示视频
+        vframe_index++;
         if( _VideoCallBack ){
             printf("VideoCallBack\n");
             printf("frame->width = %d,frame->height = %d\n",frame->width,frame->height);
@@ -441,28 +446,55 @@ void DawnPlayer::PicShow(){
             //VideoConvertYuv(frame);
             VideoConvertRgb(frame);
 
+            ///////////////////////////////////////////////////////
+            //计算pts
+            double dpts = NAN;
+	    frame->pts = frame->pkt_dts;
+            printf("frame->pts2 = %ld\n",frame->pkt_dts);
+	    _FrameVideoPts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
+	    printf("vqpts = %f\n",_FrameVideoPts);
+            //同步视频时钟
+            double frame_delay;
+            if( _FrameVideoPts != 0  ){
+	        _VideoClock = _FrameVideoPts;
+            }    
+	    else{
+	        _FrameVideoPts = _VideoClock;
+	    }
+	    frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
+            frame_delay += frame->repeat_pict * (frame_delay * 0.5);  
+            _VideoClock += frame_delay;  
+            printf("_VideoClock = %f\n",_VideoClock);
+
+            _LastFrameVideoPts = frame->pkt_pts;
+
             ///////////////////////////////////////////
 	    //计算延时
-            double delay0 = frame->pts - _AudioClock;
-            /*pthread_mutex_lock(&_ShowFrameListMutex);
-	    printf("delay0 = %f,_ShowFrameList.size = %ld\n",delay,_ShowFrameList.size());
-            pthread_mutex_unlock(&_ShowFrameListMutex);
-	    if(delay > 0 ){
-                delay = fabs(delay)*100000;  
-	    }
-	    else{
-	        delay = 0;
-	    }
-	    if( delay > 1000000/_Fps ){
-                delay = 1000000/_Fps;
-	    }
-	    printf("delay1 = %f\n",delay);
-	    usleep(delay);*/
+            double delay0 = 0;
+            if( _AudioClock != 0 ){
+                delay0 = (_FrameVideoPts - _AudioClock)*100000;
+            }
+            printf("delay0 = %f,%ld\n",delay0,_ShowFrameList.size());
             double time = av_gettime();
             double delay1 = _NexFrameTime - time;
+            printf("delay1 = %f\n",delay1);
             if( delay0 > 0 ){
-               
+                if( delay1 > 0 ) {
+                    if( delay1 > delay0 ){
+                        usleep(delay1);
+                    }
+		    else{
+                        usleep(delay0);
+		    }
+                } 
 	    }
+            time = av_gettime();
+
+            printf("frame_step_time = %f\n",time - _PreFrameTime);
+            _PreFrameTime = time;
+
+
+
             _NexFrameTime = time + _FrameStepTime;
 	    ////////////////////////////////////////////
 
@@ -583,44 +615,16 @@ void DawnPlayer::VideoDecode(){
       }
       if( VideoFrameFinished ) {
          ///////////////////////////////////////////////////////
-         //计算pts
-         double dpts = NAN;
-	 frame->pts = frame->pkt_dts;
-         if (frame->pts != AV_NOPTS_VALUE)
-             dpts = av_q2d(_FormatCtx->streams[_VideoStream]->time_base) * frame->pts;
-	 frame->sample_aspect_ratio = 
-			av_guess_sample_aspect_ratio(_FormatCtx, 
-				_FormatCtx->streams[_VideoStream], frame);
-
-	 _FrameVideoPts = (frame->pts == AV_NOPTS_VALUE) ? NAN : frame->pts * av_q2d(_FormatCtx->streams[_VideoStream]->time_base);
-	 printf("vqpts = %f\n",_FrameVideoPts);
-         //同步视频时钟
-         double frame_delay;
-         if( _FrameVideoPts != 0  ){
-	    _VideoClock = _FrameVideoPts;
-         } 
-	 else{
-	     _FrameVideoPts = _VideoClock;
-	 }
-         frame->pts = _FrameVideoPts;
-	 frame_delay = av_q2d(_FormatCtx->streams[_VideoStream]->codec->time_base);
-         frame_delay += frame->repeat_pict * (frame_delay * 0.5);  
-         _VideoClock += frame_delay;  
-         printf("_VideoClock = %f\n",_VideoClock);
          //拷贝到free_frame
-         //memcpy(free_frame,frame,sizeof(AVFrame));
          av_picture_copy((AVPicture *)free_frame,(const AVPicture *)frame,
                          (AVPixelFormat)frame->format, frame->width, frame->height);
          free_frame->format = frame->format;
          free_frame->width = frame->width;
          free_frame->height = frame->height;
+         free_frame->pkt_dts = frame->pkt_dts;
          free_frame->pts = frame->pts;
-         free_frame->pkt_pts = vframe_index++;
 
 	 ////////////////////////////////////////////
-	
-         _LastFrameVideoPts = frame->pkt_pts;
-
 
          pthread_mutex_lock(&_ShowFrameListMutex);
          _ShowFrameList.push_back(free_frame);
@@ -929,8 +933,9 @@ void DawnPlayer::ReadPacket(){
   AVPacket packet;
 
   while( 1 ) {
+    bool is_wait;
     pthread_mutex_lock(&_AudioPacketListMutex);
-    bool is_wait = _AudioPacketList.size() > _MaxPacketListLen;
+    is_wait = _AudioPacketList.size() > _MaxPacketListLen;
     pthread_mutex_unlock(&_AudioPacketListMutex);
     if( is_wait ){
 	pthread_mutex_lock(&_ReadAudioPacketCondMutex);
@@ -938,9 +943,9 @@ void DawnPlayer::ReadPacket(){
 	pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
     }
 
-    pthread_mutex_lock(&_VideoPacketListMutex);
-    is_wait =  _VideoPacketList.size() > _MaxPacketListLen ;
-    pthread_mutex_unlock(&_VideoPacketListMutex);
+    pthread_mutex_lock(&_ShowFrameListMutex);
+    is_wait =  _ShowFrameList.size() > _MaxPacketListLen ;
+    pthread_mutex_unlock(&_ShowFrameListMutex);
     if( is_wait ){
 	pthread_mutex_lock(&_ReadVideoPacketCondMutex);
         pthread_cond_wait(&_ReadVideoPacketCond,&_ReadVideoPacketCondMutex);

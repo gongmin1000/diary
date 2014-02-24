@@ -75,6 +75,7 @@ private:
   //视频解码相关方法
   //////////////////////////////////////////////////
   double          _NexFrameTime;
+  double          _PreFrameTime;
   int             _Fps;
   int             _FrameStepTime;
   VideoCallBack   _VideoCallBack;
