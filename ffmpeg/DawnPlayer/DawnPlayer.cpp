@@ -49,6 +49,7 @@ void print_error(const char *filename, int err)
 //////////////////////////////////////////////////////////
 
 DawnPlayer::DawnPlayer():
+  _PlayerStop(false),_PlaySpeed(X1SPEED),
   _FormatCtx(NULL),_FrameVideoPts(0),_CurVideoPts(0),
   _FrameRgb(NULL),_RgbBuffer(NULL),_RgbConvertCtx(NULL),
   _FrameYuv(NULL),_YuvBuffer(NULL),_YuvConvertCtx(NULL),
@@ -65,27 +66,92 @@ DawnPlayer::DawnPlayer():
 }
 
 DawnPlayer::~DawnPlayer(){
-  
-  if(_FrameRgb)
-    av_frame_free(&_FrameRgb);
+ 
+    if( _VideoStream != -1 ){
+        pthread_join(_PicShowThread,NULL);
+        pthread_join(_VideoThread,NULL);
 
-  if(_RgbBuffer)
-    av_free(_RgbBuffer);
+        pthread_mutex_destroy(&_FreeFrameListMutex);
+        pthread_mutex_destroy(&_ShowFrameListMutex);
+        pthread_attr_destroy(&_PicShowThreadAttr);
+        pthread_mutex_destroy(&_PicShowThreadCondMutex);
+        pthread_cond_destroy(&_PicShowThreadCond);
 
-  if(_FrameYuv)
-    av_frame_free(&_FrameYuv);
+        pthread_mutex_destroy(&_VideoPacketListMutex);
+        pthread_attr_destroy(&_VideoThreadAttr);
+        pthread_mutex_destroy(&_VideoThreadCondMutex);
+        pthread_cond_destroy(&_VideoThreadCond);
 
-  if(_YuvBuffer)
-    av_free(_YuvBuffer);
+        AVFrame* frame;
+        for(std::list<AVFrame*>::iterator it = _FreeFrameList.begin();
+		it != _FreeFrameList.end() ; it++){
+            frame = *it;
+            for(int i = 0 ; i < AV_NUM_DATA_POINTERS ; i++ ){
+                if( frame->data[i] != NULL )
+                    av_free(frame->data[i]);
+            }
+            av_frame_free(&frame);
+      
+        }
+        for(std::list<AVFrame*>::iterator it = _ShowFrameList.begin();
+		it != _ShowFrameList.end() ; it++){
+            frame = *it;
+            for(int i = 0 ; i < AV_NUM_DATA_POINTERS ; i++ ){
+                if( frame->data[i] != NULL )
+                    av_free(frame->data[i]);
+            }
+            av_frame_free(&frame);
+      
+        }
+        if(_FrameRgb)
+            av_frame_free(&_FrameRgb);
 
-  if(_AudioFrame)
-    av_frame_free(&_AudioFrame);
+        if(_RgbBuffer)
+            av_free(_RgbBuffer);
 
-  if(_VideoCodecCtx)
-    avcodec_close(_VideoCodecCtx);
+        if(_FrameYuv)
+            av_frame_free(&_FrameYuv);
 
-  if(_FormatCtx)
-    avformat_close_input(&_FormatCtx);
+        if(_YuvBuffer)
+            av_free(_YuvBuffer);
+    }
+
+    if( _SubtitleStream != -1){
+        pthread_join(_SubThread,NULL);
+        pthread_mutex_destroy(&_SubPacketListMutex);
+        pthread_attr_destroy(&_SubThreadAttr);
+        pthread_mutex_destroy(&_SubThreadCondMutex);
+        pthread_cond_destroy(&_SubThreadCond);
+    }
+
+    if( _AudioStream != -1 ){
+        pthread_join(_AudioThread,NULL);
+        pthread_mutex_destroy(&_AudioPacketListMutex);
+        pthread_attr_destroy(&_AudioThreadAttr);
+        pthread_mutex_destroy(&_AudioThreadCondMutex);
+        pthread_cond_destroy(&_AudioThreadCond);
+
+        if(_AudioFrame)
+            av_frame_free(&_AudioFrame);
+    }
+
+    pthread_join(_ReadPacketThread,NULL);
+    pthread_mutex_destroy(&_ReadAudioPacketCondMutex);
+    pthread_cond_destroy(&_ReadAudioPacketCond);
+    pthread_mutex_destroy(&_ReadVideoPacketCondMutex);
+    pthread_cond_destroy(&_ReadVideoPacketCond);
+    pthread_attr_destroy(&_ReadPacketThreadAttr);
+
+
+    pthread_mutex_destroy(&_ReadPacketThreadPauseCondMutex);
+    pthread_cond_destroy(&_ReadPacketThreadPauseCond);
+
+
+    if(_VideoCodecCtx)
+        avcodec_close(_VideoCodecCtx);
+
+    if(_FormatCtx)
+        avformat_close_input(&_FormatCtx);
 }
 
 int DawnPlayer::DecodeInterruptCB(void *ctx){
@@ -344,49 +410,52 @@ bool DawnPlayer::Init(char* Path){
 }
 
 void DawnPlayer::Play(){
+   
+   pthread_mutex_init(&_ReadPacketThreadPauseCondMutex,NULL);
+   pthread_cond_init(&_ReadPacketThreadPauseCond,NULL);
    if( _VideoStream != -1 ){
-     pthread_mutex_init(&_FreeFrameListMutex,NULL);
-     pthread_mutex_init(&_ShowFrameListMutex,NULL);
-     pthread_attr_init(&_PicShowThreadAttr);
-     pthread_mutex_init(&_PicShowThreadCondMutex,NULL);
-     pthread_cond_init(&_PicShowThreadCond,NULL);
+       pthread_mutex_init(&_FreeFrameListMutex,NULL);
+       pthread_mutex_init(&_ShowFrameListMutex,NULL);
+       pthread_attr_init(&_PicShowThreadAttr);
+       pthread_mutex_init(&_PicShowThreadCondMutex,NULL);
+       pthread_cond_init(&_PicShowThreadCond,NULL);
 
 
 
-     pthread_mutex_init(&_VideoPacketListMutex,NULL);
-     pthread_attr_init(&_VideoThreadAttr);
-     pthread_mutex_init(&_VideoThreadCondMutex,NULL);
-     pthread_cond_init(&_VideoThreadCond,NULL);
-     pthread_create(&_VideoThread,&_VideoThreadAttr,DawnPlayer::VideoThreadRun,(void*)this);
+       pthread_mutex_init(&_VideoPacketListMutex,NULL);
+       pthread_attr_init(&_VideoThreadAttr);
+       pthread_mutex_init(&_VideoThreadCondMutex,NULL);
+       pthread_cond_init(&_VideoThreadCond,NULL);
+       pthread_create(&_VideoThread,&_VideoThreadAttr,DawnPlayer::VideoThreadRun,(void*)this);
 
-     pthread_create(&_PicShowThread,&_PicShowThreadAttr,DawnPlayer::PicShowThreadRun,(void*)this);
+       pthread_create(&_PicShowThread,&_PicShowThreadAttr,DawnPlayer::PicShowThreadRun,(void*)this);
      
    }
    else{
-     printf("没有发现视频流\n");
+       printf("没有发现视频流\n");
    }
 
 
    if( _SubtitleStream != -1){
-      pthread_mutex_init(&_SubPacketListMutex,NULL);
-      pthread_attr_init(&_SubThreadAttr);
-      pthread_mutex_init(&_SubThreadCondMutex,NULL);
-      pthread_cond_init(&_SubThreadCond,NULL);
-      pthread_create(&_SubThread,&_SubThreadAttr,DawnPlayer::SubThreadRun,(void*)this);
+       pthread_mutex_init(&_SubPacketListMutex,NULL);
+       pthread_attr_init(&_SubThreadAttr);
+       pthread_mutex_init(&_SubThreadCondMutex,NULL);
+       pthread_cond_init(&_SubThreadCond,NULL);
+       pthread_create(&_SubThread,&_SubThreadAttr,DawnPlayer::SubThreadRun,(void*)this);
    }
    else{
-      printf("没有发现字幕流\n");
+       printf("没有发现字幕流\n");
    }
 
    if( _AudioStream != -1 ){
-      pthread_mutex_init(&_AudioPacketListMutex,NULL);
-      pthread_attr_init(&_AudioThreadAttr);
-      pthread_mutex_init(&_AudioThreadCondMutex,NULL);
-      pthread_cond_init(&_AudioThreadCond,NULL);
-      pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
+       pthread_mutex_init(&_AudioPacketListMutex,NULL);
+       pthread_attr_init(&_AudioThreadAttr);
+       pthread_mutex_init(&_AudioThreadCondMutex,NULL);
+       pthread_cond_init(&_AudioThreadCond,NULL);
+       pthread_create(&_AudioThread,&_AudioThreadAttr,DawnPlayer::AudioThreadRun,(void*)this);
    }
    else{
-      printf("没有发现音频流\n");
+       printf("没有发现音频流\n");
    }
 
    _StartPlayTime = (double)av_gettime() / 1000000.0;
@@ -406,7 +475,7 @@ void DawnPlayer::PicShow(){
     if( _VideoCallBack == NULL ){
         return ;
     }
-    while(1){
+    while(!_PlayerStop){
         pthread_mutex_lock(&_ShowFrameListMutex);
         printf("_ShowFrameList.size  = %ld\n",_ShowFrameList.size());
         if(_ShowFrameList.size() < 1 ){
@@ -469,7 +538,7 @@ void DawnPlayer::PicShow(){
             _LastFrameVideoPts = frame->pkt_pts;
 
             ///////////////////////////////////////////
-	    //计算延时
+	    //计算延时,与音频同步
             double delay0 = 0;
             if( _AudioClock != 0 ){
                 delay0 = (_FrameVideoPts - _AudioClock)*100000;
@@ -478,8 +547,8 @@ void DawnPlayer::PicShow(){
             double time = av_gettime();
             double delay1 = _NexFrameTime - time;
             printf("delay1 = %f\n",delay1);
-            if( delay0 > 0 ){
-                if( delay1 > 0 ) {
+            if( delay0 >= 0 ){
+                if( delay1 >= 0 ) {
                     if( delay1 > delay0 ){
                         usleep(delay1);
                     }
@@ -488,13 +557,15 @@ void DawnPlayer::PicShow(){
 		    }
                 } 
 	    }
+
             time = av_gettime();
 
             printf("frame_step_time = %f\n",time - _PreFrameTime);
             _PreFrameTime = time;
 
 
-
+            /*if ( _PlaySpeed >= X1SPEED && _PlaySpeed <= X8SPEED  ){
+            }*/
             _NexFrameTime = time + _FrameStepTime;
 	    ////////////////////////////////////////////
 
@@ -581,7 +652,7 @@ void DawnPlayer::VideoDecode(){
   _FreeFrameList.pop_front();
   pthread_mutex_unlock(&_FreeFrameListMutex);
 
-  while(1){
+  while(!_PlayerStop){
       pthread_mutex_lock(&_VideoPacketListMutex);
       printf("_VideoPacketList.size = %ld\n",_VideoPacketList.size());
       if( _VideoPacketList.size() < 1 ){
@@ -690,40 +761,6 @@ void DawnPlayer::AudioPts()
 int DawnPlayer::SynchronizeAudio(int nb_samples)
 {//根据后续开发决定是否增加
     int wanted_nb_samples = nb_samples;
-
-    // if not master, then we try to remove or add samples to correct the clock 
-    /*if (get_master_sync_type(is) != AV_SYNC_AUDIO_MASTER) {
-        double diff, avg_diff;
-        int min_nb_samples, max_nb_samples;
-
-        diff = get_clock(&is->audclk) - get_master_clock(is);
-
-        if (!isnan(diff) && fabs(diff) < AV_NOSYNC_THRESHOLD) {
-            is->audio_diff_cum = diff + is->audio_diff_avg_coef * is->audio_diff_cum;
-            if (is->audio_diff_avg_count < AUDIO_DIFF_AVG_NB) {
-                //not enough measures to have a correct estimate
-                is->audio_diff_avg_count++;
-            } else {
-                //estimate the A-V difference 
-                avg_diff = is->audio_diff_cum * (1.0 - is->audio_diff_avg_coef);
-
-                if (fabs(avg_diff) >= is->audio_diff_threshold) {
-                    wanted_nb_samples = nb_samples + (int)(diff * is->audio_src.freq);
-                    min_nb_samples = ((nb_samples * (100 - SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                    max_nb_samples = ((nb_samples * (100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                    wanted_nb_samples = FFMIN(FFMAX(wanted_nb_samples, min_nb_samples), max_nb_samples);
-                }
-                av_dlog(NULL, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
-                        diff, avg_diff, wanted_nb_samples - nb_samples,
-                        is->audio_clock, is->audio_diff_threshold);
-            }
-        } else {
-            //too big difference : may be initial PTS errors, so reset A-V filter 
-            is->audio_diff_avg_count = 0;
-            is->audio_diff_cum       = 0;
-        }
-    }*/
-
     return wanted_nb_samples;
 }
 
@@ -821,7 +858,7 @@ void DawnPlayer::AudioConvert(unsigned char** buf,int &len)
 void DawnPlayer::AudioDecode(){
    int AudioFrameFinished;//音频帧结束标志 
    int ret = 0;
-   while(1){
+   while(!_PlayerStop){
       pthread_mutex_lock(&_AudioPacketListMutex);
       if( _AudioPacketList.size() < 1 ){
           printf("_AudioPacketList.size = %ld\n",_AudioPacketList.size());
@@ -897,7 +934,7 @@ void DawnPlayer::SubtitleDecode(){
   int SubFrameFinished;
   int ret = 0;
   AVSubtitle sub;
-  while(1){
+  while(!_PlayerStop){
      pthread_mutex_lock(&_SubPacketListMutex);
      if( _SubPacketList.size() < 1 ){
         pthread_mutex_unlock(&_SubPacketListMutex);
@@ -932,73 +969,81 @@ void DawnPlayer::ReadPacket(){
   int eof = 0;
   AVPacket packet;
 
-  while( 1 ) {
-    bool is_wait;
-    pthread_mutex_lock(&_AudioPacketListMutex);
-    is_wait = _AudioPacketList.size() > _MaxPacketListLen;
-    pthread_mutex_unlock(&_AudioPacketListMutex);
-    if( is_wait ){
-	pthread_mutex_lock(&_ReadAudioPacketCondMutex);
-        pthread_cond_wait(&_ReadAudioPacketCond,&_ReadAudioPacketCondMutex);
-	pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
-    }
-
-    pthread_mutex_lock(&_ShowFrameListMutex);
-    is_wait =  _ShowFrameList.size() > _MaxPacketListLen ;
-    pthread_mutex_unlock(&_ShowFrameListMutex);
-    if( is_wait ){
-	pthread_mutex_lock(&_ReadVideoPacketCondMutex);
-        pthread_cond_wait(&_ReadVideoPacketCond,&_ReadVideoPacketCondMutex);
-	pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
-    }
-
-    ret = av_read_frame(_FormatCtx, &packet);
-    if (ret < 0) {
-      print_error(NULL,ret);
-      if (ret == AVERROR_EOF || url_feof(_FormatCtx->pb)){
-	eof = 1;
-	break;
-	
+  while( !_PlayerStop ) {
+      if( _PlaySpeed == PAUSE ){
+	  pthread_mutex_lock(&_ReadPacketThreadPauseCondMutex);
+          pthread_cond_wait(&_ReadPacketThreadPauseCond,&_ReadPacketThreadPauseCondMutex);
+	  pthread_mutex_unlock(&_ReadPacketThreadPauseCondMutex);
       }
-      
-      /*if (_ic->pb && _ic->pb->error)
-	break;*/
-      continue;
-    }
-    
-    //printf("packet.stream_index = %d\n",packet.stream_index);
- 
-    if( _VideoCodecCtx && packet.stream_index == _VideoStream ) {
-      pthread_mutex_lock(&_VideoPacketListMutex);
-      _VideoPacketList.push_back(packet);
-      printf("add video packet,size = %ld\n",_VideoPacketList.size());
-      pthread_mutex_unlock(&_VideoPacketListMutex);
 
-      pthread_mutex_lock(&_VideoThreadCondMutex);
-      pthread_cond_signal(&_VideoThreadCond);
-      pthread_mutex_unlock(&_VideoThreadCondMutex);
 
-    }
-    else if( _AudioCodecCtx && packet.stream_index == _AudioStream ){
+      bool is_wait;
       pthread_mutex_lock(&_AudioPacketListMutex);
-      _AudioPacketList.push_back(packet);
-      printf("add audio packet,size = %ld\n",_AudioPacketList.size());
+      is_wait = _AudioPacketList.size() > _MaxPacketListLen;
       pthread_mutex_unlock(&_AudioPacketListMutex);
+      if( is_wait ){
+	  pthread_mutex_lock(&_ReadAudioPacketCondMutex);
+          pthread_cond_wait(&_ReadAudioPacketCond,&_ReadAudioPacketCondMutex);
+          pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
+      }
 
-      pthread_mutex_lock(&_AudioThreadCondMutex);
-      pthread_cond_signal(&_AudioThreadCond);
-      pthread_mutex_unlock(&_AudioThreadCondMutex);
-    }
-    else if( _SubtitleCodecCtx && packet.stream_index == _SubtitleStream ){
-      pthread_mutex_lock(&_SubPacketListMutex);
-      _SubPacketList.push_back(packet);
-      //printf("add sub packet,size = %ld\n",_SubPacketList.size());
-      pthread_mutex_unlock(&_SubPacketListMutex);
+      pthread_mutex_lock(&_ShowFrameListMutex);
+      is_wait =  _ShowFrameList.size() > _MaxPacketListLen ;
+      pthread_mutex_unlock(&_ShowFrameListMutex);
+      if( is_wait ){
+	  pthread_mutex_lock(&_ReadVideoPacketCondMutex);
+          pthread_cond_wait(&_ReadVideoPacketCond,&_ReadVideoPacketCondMutex);
+	  pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
+      }
+
+      ret = av_read_frame(_FormatCtx, &packet);
+      if (ret < 0) {
+          print_error(NULL,ret);
+
+          if (ret == AVERROR_EOF || url_feof(_FormatCtx->pb)){
+	      eof = 1;
+	      break;
+	
+          }
       
-      pthread_mutex_lock(&_SubThreadCondMutex);
-      pthread_cond_signal(&_SubThreadCond);
-      pthread_mutex_unlock(&_SubThreadCondMutex);
-    }
+          /*if (_ic->pb && _ic->pb->error)
+	     break;*/
+          continue;
+      }
+    
+      //printf("packet.stream_index = %d\n",packet.stream_index);
+ 
+      if( _VideoCodecCtx && packet.stream_index == _VideoStream ) {
+          pthread_mutex_lock(&_VideoPacketListMutex);
+          _VideoPacketList.push_back(packet);
+          //printf("add video packet,size = %ld\n",_VideoPacketList.size());
+          pthread_mutex_unlock(&_VideoPacketListMutex);
+
+          pthread_mutex_lock(&_VideoThreadCondMutex);
+          pthread_cond_signal(&_VideoThreadCond);
+          pthread_mutex_unlock(&_VideoThreadCondMutex);
+
+      }
+      else if( _AudioCodecCtx && packet.stream_index == _AudioStream ){
+          pthread_mutex_lock(&_AudioPacketListMutex);
+          _AudioPacketList.push_back(packet);
+          //printf("add audio packet,size = %ld\n",_AudioPacketList.size());
+          pthread_mutex_unlock(&_AudioPacketListMutex);
+
+          pthread_mutex_lock(&_AudioThreadCondMutex);
+          pthread_cond_signal(&_AudioThreadCond);
+          pthread_mutex_unlock(&_AudioThreadCondMutex);
+      }
+      else if( _SubtitleCodecCtx && packet.stream_index == _SubtitleStream ){
+          pthread_mutex_lock(&_SubPacketListMutex);
+          _SubPacketList.push_back(packet);
+          //printf("add sub packet,size = %ld\n",_SubPacketList.size());
+          pthread_mutex_unlock(&_SubPacketListMutex);
+      
+          pthread_mutex_lock(&_SubThreadCondMutex);
+          pthread_cond_signal(&_SubThreadCond);
+          pthread_mutex_unlock(&_SubThreadCondMutex);
+      }
   }
 
   printf("vframe_index = %d\n",vframe_index);
@@ -1007,3 +1052,23 @@ void DawnPlayer::ReadPacket(){
 
 }
 
+void DawnPlayer::Seek(long offset,int offset_type,int whence){
+    switch(offset_type){
+        case 0:
+            break;
+        case 1:
+            break;
+        default:
+	    break;
+    }
+}
+
+void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
+    _PlaySpeed = speed;
+    if( speed != PAUSE ){
+          _PlaySpeed = X1SPEED;
+          pthread_mutex_lock(&_ReadPacketThreadPauseCondMutex);
+          pthread_cond_signal(&_ReadPacketThreadPauseCond);
+          pthread_mutex_unlock(&_ReadPacketThreadPauseCondMutex);
+    }
+}

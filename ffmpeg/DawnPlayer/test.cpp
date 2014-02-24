@@ -10,6 +10,7 @@
 
 #include <iostream>
 
+DawnPlayer *player = NULL;
 SDL_Texture    *bmp = NULL;  
 SDL_Window     *screen = NULL;  
 SDL_Rect        rect;
@@ -32,9 +33,29 @@ void handleKeyEvent( SDL_Keysym* keysym )
     case SDLK_ESCAPE:    
         quit( 0 );    
         break;    
-    case SDLK_SPACE:    
-     std::cout<<"Space"<<std::endl;  
-        break;    
+    case SDLK_RIGHT:
+        player->Seek(-1000,1,SEEK_CUR);
+        break;
+    case SDLK_LEFT:
+        player->Seek(1000,1,SEEK_CUR);
+        break;
+    case SDLK_SPACE:
+        static PlaySpeed speed = X1SPEED;
+        std::cout<<"Space"<<std::endl;  
+        if( speed == X1SPEED ){
+            player->SetPlaySpeed(PAUSE);
+        }
+        else{
+            player->SetPlaySpeed(X1SPEED);
+        }
+        
+        break;
+    /*case :
+        break;
+    case :
+        break;
+    case :
+        break;*/
     default:    
         break;    
     }    
@@ -130,7 +151,6 @@ void AudioPlay(void* prv_data,unsigned char* buf,int len){
 int main(int argc,char* argv[]){
   char buf[1024];
   AudioParameter parameter;
-  DawnPlayer *player = NULL;
   av_register_all();
 
   int error;
@@ -182,6 +202,7 @@ int main(int argc,char* argv[]){
     player->GetVideoParameter(&videoparameter);
     player->SetVideoCallBack(NULL,VideoPlay);    
     player->Play();
+    player->SetPlaySpeed(X4SPEED);
     sleep(2000);
     SDL_DestroyTexture(bmp); 
     if (s){
