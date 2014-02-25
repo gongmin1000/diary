@@ -12,6 +12,7 @@ extern "C"{
 #include <libavcodec/avfft.h>
 #include <libswscale/swscale.h>
 #include <libavutil/time.h>
+#include <stdint.h>
 }
 
 #include <list>
@@ -105,12 +106,11 @@ private:
     //////////////////////////////////////////////////
     //
     AVFormatContext *_FormatCtx;
+    pthread_mutex_t _FormatCtxMutex;
     pthread_t       _ReadPacketThread;
     pthread_attr_t  _ReadPacketThreadAttr;
-    pthread_mutex_t _ReadVideoPacketCondMutex;
-    pthread_cond_t  _ReadVideoPacketCond;
-    pthread_mutex_t _ReadAudioPacketCondMutex;
-    pthread_cond_t  _ReadAudioPacketCond;
+    pthread_mutex_t _ReadPacketCondMutex;
+    pthread_cond_t  _ReadPacketCond;
     double          _StartPlayTime;
     int             _MaxPacketListLen;
  
