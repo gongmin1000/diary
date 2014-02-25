@@ -4,7 +4,7 @@ LINKER_FLAGS=-L/home/dongrui/program/ffmpeg/lib -L/home/dongrui/program/sdl2/lib
 
 CFLAGS=-D__STDC_CONSTANT_MACROS 
 
-DawnPlayer:DawnPlayer.cpp
+DawnPlayer:DawnPlayer.cpp test.cpp
 	g++ -g -o DawnPlayer DawnPlayer.cpp test.cpp $(CFLAGS) $(INCLUDE_PATH)  $(LINKER_FLAGS)
 
 

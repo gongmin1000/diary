@@ -83,20 +83,20 @@ private:
     //播放控制
     ///////////////////////////////////////////////////
     //暂停数据包读取
-    pthread_mutex_t _ReadPacketThreadPauseCondMutex;
+    /*pthread_mutex_t _ReadPacketThreadPauseCondMutex;
     pthread_cond_t  _ReadPacketThreadPauseCond;
     //暂停视频解码
     pthread_mutex_t _VideoThreadPauseCondMutex;
-    pthread_cond_t  _VideoThreadPauseCond;
+    pthread_cond_t  _VideoThreadPauseCond;*/
     //暂停显示
     pthread_mutex_t _ShowPicThreadPauseCondMutex;
     pthread_cond_t  _ShowPicThreadPauseCond;
     //暂停音频解码
-    pthread_mutex_t _AudioThreadPauseCondMutex;
+    /*pthread_mutex_t _AudioThreadPauseCondMutex;
     pthread_cond_t  _AudioThreadPauseCond;
     //暂停字幕
     pthread_mutex_t _SubThreadPauseCondMutex;
-    pthread_cond_t  _SubThreadPauseCond;
+    pthread_cond_t  _SubThreadPauseCond;*/
 
     PlaySpeed       _PlaySpeed;
 

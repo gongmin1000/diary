@@ -15,6 +15,14 @@ SDL_Texture    *bmp = NULL;
 SDL_Window     *screen = NULL;  
 SDL_Rect        rect;
 SDL_Renderer *renderer;
+Uint32 ShowPicEventType = -1;
+
+pthread_t       ShowPicThread;
+pthread_attr_t  ShowPicThreadAttr;
+pthread_mutex_t ShowPicCondMutex;
+pthread_cond_t  ShowPicCond;
+
+AVFrame* show_frame = NULL;
 void quit( int code )    
 {    
     SDL_Quit( );    
@@ -24,6 +32,25 @@ void quit( int code )
 
 void resizeGL(int width,int height)
 {
+}
+
+void CreateWindow(){
+    screen = SDL_CreateWindow("My Game Window",  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              SDL_WINDOWPOS_UNDEFINED,  
+                              show_frame->width,  show_frame->height,  
+                              SDL_WINDOW_OPENGL);  
+    renderer = SDL_CreateRenderer(screen, -1, 0);  
+      
+      
+    if(!screen) {  
+        fprintf(stderr, "SDL: could not set video mode - exiting\n");  
+        exit(1);  
+    }  
+    bmp = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGB24,
+				SDL_TEXTUREACCESS_STREAMING,
+				show_frame->width,show_frame->height);
+    ShowPicEventType = SDL_RegisterEvents(1);
 }
 
 void handleKeyEvent( SDL_Keysym* keysym )    
@@ -44,9 +71,11 @@ void handleKeyEvent( SDL_Keysym* keysym )
         std::cout<<"Space"<<std::endl;  
         if( speed == X1SPEED ){
             player->SetPlaySpeed(PAUSE);
+            speed = PAUSE;
         }
         else{
             player->SetPlaySpeed(X1SPEED);
+            speed = X1SPEED;
         }
         
         break;
@@ -63,12 +92,20 @@ void handleKeyEvent( SDL_Keysym* keysym )
   
 void handleEvents()    
 {    
+    static bool WindowCreated = false;
+    if( WindowCreated == false ){
+        while(!show_frame){
+            usleep(1);
+        }
+        CreateWindow();
+        WindowCreated = true;
+    }
     // Our SDL event placeholder.    
     SDL_Event event;    
     //Grab all the events off the queue.    
     //while( SDL_PollEvent( &event ) ) {
-    SDL_PollEvent( &event );
-    {
+    while( SDL_WaitEvent( &event ) ) {
+        printf("ShowPicEventType-1 = %d\n",event.type);
         switch( event.type ) {    
         case SDL_KEYDOWN:    
             // Handle key Event    
@@ -90,13 +127,62 @@ void handleEvents()
                 }    
             }  
             
-            break;    
+            break;   
+
+        }
+        printf("ShowPicEventType0 = %d\n",ShowPicEventType);
+        if( event.type == ShowPicEventType ){
+            if( show_frame != NULL ){
+                rect.x = 0;  
+                rect.y = 0;  
+                rect.w = show_frame->width;  
+                rect.h = show_frame->height;
+                printf("ShowPicEventType1 = %d,%d,%p,%d\n",rect.w,rect.h,
+                       show_frame,show_frame->linesize[0]);
+    
+                SDL_UpdateTexture( bmp, &rect, show_frame->data[0], show_frame->linesize[0] );
+                SDL_RenderClear( renderer );  
+                SDL_RenderCopy( renderer, bmp, &rect, &rect );  
+                SDL_RenderPresent( renderer );
+            }
+            pthread_mutex_lock(&ShowPicCondMutex);
+            pthread_cond_signal(&ShowPicCond);
+            pthread_mutex_unlock(&ShowPicCondMutex);
+           
         }    
     }    
 }
-
+    
+void *ShowPicThreadRun(void* arg){
+    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
+        fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());  
+        exit(1);  
+    }
+    printf("ShowPicThreadRun\n");
+    handleEvents();
+    return NULL;
+}
 
 void VideoPlay(void* prv_data,AVFrame* frame){
+    printf("VideoPlay\n");
+    show_frame = frame;
+
+    if (ShowPicEventType != ((Uint32)-1)) {
+        SDL_Event event;
+        SDL_zero(event);
+        event.type = ShowPicEventType;
+        event.user.code = 1;
+        event.user.data1 = 0;
+        event.user.data2 = 0;
+        SDL_PushEvent(&event);
+        printf("ShowPicEventType2 = %d,%d\n",frame->linesize[0],show_frame->linesize[0]);
+        pthread_mutex_lock(&ShowPicCondMutex);
+        pthread_cond_wait(&ShowPicCond,&ShowPicCondMutex);
+        pthread_mutex_unlock(&ShowPicCondMutex);
+    }
+
+}
+/*void VideoPlay(void* prv_data,AVFrame* frame){
     static bool sdl_init = false;
     if( sdl_init == false ){
         if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
@@ -134,7 +220,7 @@ void VideoPlay(void* prv_data,AVFrame* frame){
     SDL_RenderPresent( renderer );
 
     
-}
+}*/
 
 
 void AudioPlay(void* prv_data,unsigned char* buf,int len){
@@ -149,14 +235,24 @@ void AudioPlay(void* prv_data,unsigned char* buf,int len){
 
 
 int main(int argc,char* argv[]){
-  char buf[1024];
-  AudioParameter parameter;
-  av_register_all();
+    char buf[1024];
+    AudioParameter parameter;
+    av_register_all();
 
-  int error;
-  pa_simple *s;
-  pa_sample_spec ss;
-  pa_channel_map pacmap; 
+    pthread_mutex_init(&ShowPicCondMutex,NULL);
+    pthread_cond_init(&ShowPicCond,NULL);
+
+    pthread_attr_init(&ShowPicThreadAttr);
+    pthread_create(&ShowPicThread,&ShowPicThreadAttr,ShowPicThreadRun,NULL);
+  
+
+
+
+
+    int error;
+    pa_simple *s;
+    pa_sample_spec ss;
+    pa_channel_map pacmap; 
     /*if( player ){
       delete player;
     }*/
@@ -202,7 +298,7 @@ int main(int argc,char* argv[]){
     player->GetVideoParameter(&videoparameter);
     player->SetVideoCallBack(NULL,VideoPlay);    
     player->Play();
-    player->SetPlaySpeed(X4SPEED);
+    player->SetPlaySpeed(X1SPEED);
     sleep(2000);
     SDL_DestroyTexture(bmp); 
     if (s){

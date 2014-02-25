@@ -143,8 +143,8 @@ DawnPlayer::~DawnPlayer(){
     pthread_attr_destroy(&_ReadPacketThreadAttr);
 
 
-    pthread_mutex_destroy(&_ReadPacketThreadPauseCondMutex);
-    pthread_cond_destroy(&_ReadPacketThreadPauseCond);
+    pthread_mutex_destroy(&_ShowPicThreadPauseCondMutex);
+    pthread_cond_destroy(&_ShowPicThreadPauseCond);
 
 
     if(_VideoCodecCtx)
@@ -411,8 +411,8 @@ bool DawnPlayer::Init(char* Path){
 
 void DawnPlayer::Play(){
    
-   pthread_mutex_init(&_ReadPacketThreadPauseCondMutex,NULL);
-   pthread_cond_init(&_ReadPacketThreadPauseCond,NULL);
+   pthread_mutex_init(&_ShowPicThreadPauseCondMutex,NULL);
+   pthread_cond_init(&_ShowPicThreadPauseCond,NULL);
    if( _VideoStream != -1 ){
        pthread_mutex_init(&_FreeFrameListMutex,NULL);
        pthread_mutex_init(&_ShowFrameListMutex,NULL);
@@ -476,6 +476,14 @@ void DawnPlayer::PicShow(){
         return ;
     }
     while(!_PlayerStop){
+       printf("_PlaySpeed = %d\n",_PlaySpeed);
+       if( _PlaySpeed == PAUSE ){
+	   pthread_mutex_lock(&_ShowPicThreadPauseCondMutex);
+           pthread_cond_wait(&_ShowPicThreadPauseCond,&_ShowPicThreadPauseCondMutex);
+	   pthread_mutex_unlock(&_ShowPicThreadPauseCondMutex);
+       }
+
+
         pthread_mutex_lock(&_ShowFrameListMutex);
         printf("_ShowFrameList.size  = %ld\n",_ShowFrameList.size());
         if(_ShowFrameList.size() < 1 ){
@@ -494,9 +502,6 @@ void DawnPlayer::PicShow(){
         _ShowFrameList.pop_front();
         pthread_mutex_unlock(&_ShowFrameListMutex);
 
-        pthread_mutex_lock(&_ReadVideoPacketCondMutex);
-        pthread_cond_signal(&_ReadVideoPacketCond);
-        pthread_mutex_unlock(&_ReadVideoPacketCondMutex);
 
         /////////////////////////////////////////////////////////
         //显示视频
@@ -547,16 +552,21 @@ void DawnPlayer::PicShow(){
             double time = av_gettime();
             double delay1 = _NexFrameTime - time;
             printf("delay1 = %f\n",delay1);
-            if( delay0 >= 0 ){
-                if( delay1 >= 0 ) {
-                    if( delay1 > delay0 ){
-                        usleep(delay1);
-                    }
-		    else{
-                        usleep(delay0);
-		    }
-                } 
-	    }
+            if( _PlaySpeed == X1SPEED ){
+                if( delay0 >= 0 ){
+                    if( delay1 >= 0 ) {
+                        if( delay1 > delay0 ){
+                            usleep(delay1);
+                        }
+		        else{
+                            usleep(delay0);
+		        }
+                    }    
+	        }
+            }
+	    else if ( _PlaySpeed > X1SPEED && _PlaySpeed <= X8SPEED  ){
+                usleep(_FrameStepTime/_PlaySpeed);
+            }
 
             time = av_gettime();
 
@@ -564,8 +574,6 @@ void DawnPlayer::PicShow(){
             _PreFrameTime = time;
 
 
-            /*if ( _PlaySpeed >= X1SPEED && _PlaySpeed <= X8SPEED  ){
-            }*/
             _NexFrameTime = time + _FrameStepTime;
 	    ////////////////////////////////////////////
 
@@ -903,7 +911,7 @@ void DawnPlayer::AudioDecode(){
          aframe_index++;
          AudioPts();
     
-         if( !_AudioCallBack ){
+         if( !_AudioCallBack || _PlaySpeed != X1SPEED ){
             printf("!_AudioCallBack\n");
          }
          else{
@@ -970,16 +978,10 @@ void DawnPlayer::ReadPacket(){
   AVPacket packet;
 
   while( !_PlayerStop ) {
-      if( _PlaySpeed == PAUSE ){
-	  pthread_mutex_lock(&_ReadPacketThreadPauseCondMutex);
-          pthread_cond_wait(&_ReadPacketThreadPauseCond,&_ReadPacketThreadPauseCondMutex);
-	  pthread_mutex_unlock(&_ReadPacketThreadPauseCondMutex);
-      }
-
-
       bool is_wait;
       pthread_mutex_lock(&_AudioPacketListMutex);
       is_wait = _AudioPacketList.size() > _MaxPacketListLen;
+      //printf("is_waitia = %d,%ld\n",is_wait,_AudioPacketList.size());
       pthread_mutex_unlock(&_AudioPacketListMutex);
       if( is_wait ){
 	  pthread_mutex_lock(&_ReadAudioPacketCondMutex);
@@ -987,9 +989,10 @@ void DawnPlayer::ReadPacket(){
           pthread_mutex_unlock(&_ReadAudioPacketCondMutex);
       }
 
-      pthread_mutex_lock(&_ShowFrameListMutex);
-      is_wait =  _ShowFrameList.size() > _MaxPacketListLen ;
-      pthread_mutex_unlock(&_ShowFrameListMutex);
+      pthread_mutex_lock(&_VideoPacketListMutex);
+      is_wait =  _VideoPacketList.size() > _MaxPacketListLen ;
+      //printf("is_waitv = %d,%ld\n",is_wait,_VideoPacketList.size());
+      pthread_mutex_unlock(&_VideoPacketListMutex);
       if( is_wait ){
 	  pthread_mutex_lock(&_ReadVideoPacketCondMutex);
           pthread_cond_wait(&_ReadVideoPacketCond,&_ReadVideoPacketCondMutex);
@@ -1066,9 +1069,8 @@ void DawnPlayer::Seek(long offset,int offset_type,int whence){
 void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
     _PlaySpeed = speed;
     if( speed != PAUSE ){
-          _PlaySpeed = X1SPEED;
-          pthread_mutex_lock(&_ReadPacketThreadPauseCondMutex);
-          pthread_cond_signal(&_ReadPacketThreadPauseCond);
-          pthread_mutex_unlock(&_ReadPacketThreadPauseCondMutex);
+          pthread_mutex_lock(&_ShowPicThreadPauseCondMutex);
+          pthread_cond_signal(&_ShowPicThreadPauseCond);
+          pthread_mutex_unlock(&_ShowPicThreadPauseCondMutex);
     }
 }
