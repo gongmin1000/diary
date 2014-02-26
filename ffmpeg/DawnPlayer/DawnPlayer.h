@@ -1,6 +1,7 @@
 #ifndef __DAWN_PLAYER_H__
 #define __DAWN_PLAYER_H__
 #include <unistd.h>
+#include <semaphore.h>
 #include <pthread.h>
 
 extern "C"{
@@ -90,18 +91,27 @@ private:
     pthread_mutex_t _VideoThreadPauseCondMutex;
     pthread_cond_t  _VideoThreadPauseCond;*/
     //暂停显示
-    pthread_mutex_t _ShowPicThreadPauseCondMutex;
+    /*pthread_mutex_t _ShowPicThreadPauseCondMutex;
     pthread_cond_t  _ShowPicThreadPauseCond;
     //暂停音频解码
-    /*pthread_mutex_t _AudioThreadPauseCondMutex;
+    pthread_mutex_t _AudioThreadPauseCondMutex;
     pthread_cond_t  _AudioThreadPauseCond;
     //暂停字幕
     pthread_mutex_t _SubThreadPauseCondMutex;
     pthread_cond_t  _SubThreadPauseCond;*/
 
+    //暂停播放器
+    sem_t           _PauseSem;
+    pthread_mutex_t _PauseMutex;
     PlaySpeed       _PlaySpeed;
 
+    //播放跳转
+    bool            _ClearAllList;
+    void ClearAllList();
+    uint64_t        _SeekPos;
+    void DoSeek();
     bool            _PlayerStop;
+
 
     //////////////////////////////////////////////////
     //
