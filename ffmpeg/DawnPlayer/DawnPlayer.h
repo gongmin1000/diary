@@ -41,7 +41,7 @@ enum PlaySpeed{
    X3SPEED,
    X4SPEED,
    X8SPEED,
-   ONE_STEP_SPEED
+   ONE_FRAME_SPEED
 };
 
 
@@ -101,7 +101,6 @@ private:
     pthread_cond_t  _SubThreadPauseCond;*/
 
     //暂停播放器
-    sem_t           _PauseSem;
     pthread_mutex_t _PauseMutex;
     PlaySpeed       _PlaySpeed;
 
@@ -111,6 +110,11 @@ private:
     uint64_t        _SeekPos;
     void DoSeek();
     bool            _PlayerStop;
+
+    //单步播放
+    pthread_mutex_t _OneFramePlayCondMutex;
+    pthread_cond_t  _OneFramePlayCond;
+    
 
 
     //////////////////////////////////////////////////
@@ -154,6 +158,7 @@ private:
     pthread_attr_t  _VideoThreadAttr;
     pthread_mutex_t _VideoThreadCondMutex;
     pthread_cond_t  _VideoThreadCond;
+    bool            _VideoThreadStop;
 
     double          _FrameVideoPts;
     double          _LastFrameVideoPts;
@@ -171,6 +176,7 @@ private:
     pthread_attr_t  _PicShowThreadAttr;
     pthread_mutex_t _PicShowThreadCondMutex;
     pthread_cond_t  _PicShowThreadCond;
+    bool            _PicShowThreadStop;
 
     //////////////////////////////////////////////
     //声音相关方法 
@@ -202,6 +208,7 @@ private:
     double          _FrameAudioPts;
     double          _AudioClock;
     double          _CurAudioPts;
+    bool            _AudioThreadStop;
  
     /////////////////////////////////////////////////
     //字幕相关方法
@@ -215,6 +222,7 @@ private:
     pthread_attr_t  _SubThreadAttr;
     pthread_mutex_t _SubThreadCondMutex;
     pthread_cond_t  _SubThreadCond;
+    bool            _SubThreadStop;
 
   
     int vframe_index;
