@@ -479,7 +479,7 @@ void DawnPlayer::PicShow(){
     while(!_PlayerStop){
         printf("_PlaySpeed = %d\n",_PlaySpeed);
         if( _PlaySpeed == PAUSE ){
-            sem_wait(&_PauseSem);
+            //sem_wait(&_PauseSem);
         }
 
 
@@ -725,10 +725,17 @@ void DawnPlayer::VideoDecode(){
     
 	 while( 1 ){
              pthread_mutex_lock(&_FreeFrameListMutex);
-             printf("_FreeFrameList.size = %ld\n",_FreeFrameList.size());
+             uint64_t list_count = _FreeFrameList.size();
              if( _FreeFrameList.size() < 1 ){
              	 pthread_mutex_unlock(&_FreeFrameListMutex);
-		 usleep(5000);
+                 printf("_FreeFrameList.size = %ld\n",list_count);
+
+                 list_count = _ShowFrameList.size();
+                 pthread_mutex_lock(&_ShowFrameListMutex);
+                 printf("_ShowFrameList.size = %ld\n",list_count);
+                 pthread_mutex_unlock(&_ShowFrameListMutex);
+
+		 usleep(_FrameStepTime/3);
              }
 	     else{
                  free_frame = _FreeFrameList.front();
@@ -994,7 +1001,9 @@ void DawnPlayer::ReadPacket(){
   AVPacket packet;
 
   while( !_PlayerStop ) {
-
+      if( _SeekPos != 0 ){
+          DoSeek();
+      }
       bool is_wait = false;
       if( _AudioStream != -1 ){
           pthread_mutex_lock(&_AudioPacketListMutex);
@@ -1034,12 +1043,10 @@ void DawnPlayer::ReadPacket(){
 	
           }
       
-          /*if (_ic->pb && _ic->pb->error)
-	     break;*/
           continue;
       }
     
-      //printf("packet.stream_index = %d\n",packet.stream_index);
+      printf("packet.stream_index = %d\n",packet.stream_index);
  
       if( _VideoCodecCtx && packet.stream_index == _VideoStream ) {
           pthread_mutex_lock(&_VideoPacketListMutex);
@@ -1082,12 +1089,10 @@ void DawnPlayer::ReadPacket(){
 void DawnPlayer::ClearAllList(){
     ////////////////////////////////////////////////////
     //等待所有线程停止，并清空缓冲，准备跳转
-    PlaySpeed play_speed = _PlaySpeed;
-    SetPlaySpeed( PAUSE );
     _ClearAllList = true;
     pthread_mutex_lock(&_VideoPacketListMutex);
     for(std::list<AVPacket>::iterator it = _VideoPacketList.begin();
-	 it != _VideoPacketList.end() ;it++){
+	it != _VideoPacketList.end() ;it++){
         av_free_packet(&(*it));
     }
     _VideoPacketList.clear();
@@ -1121,21 +1126,21 @@ void DawnPlayer::ClearAllList(){
     _ShowFrameList.clear();
     pthread_mutex_unlock(&_ShowFrameListMutex);
 
-
-  
-    SetPlaySpeed( play_speed );
 }
 
 void DawnPlayer::DoSeek(){
+    printf("DoSeek\n");
     if(_SeekPos == 0 ){
         return;
     }
+    printf("ClearAllList\n");
     ClearAllList();
     pthread_mutex_lock(&_FormatCtxMutex);
     av_seek_frame(_FormatCtx,_VideoStream,_SeekPos,0);
     //avformat_seek_file(_FormatCtx,-1,0, offset, 0xfffffffffff, AVSEEK_FLAG_FRAME);
     pthread_mutex_unlock(&_FormatCtxMutex);
     _SeekPos = 0;
+    printf("sem_post(&_SeekSem)\n");
 }
 
 
@@ -1150,7 +1155,7 @@ void DawnPlayer::Seek(long offset,int offset_type,int whence){
         default:
 	    break;
     }
-    DoSeek();
+    printf("Seek\n");
 }
 
 void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
@@ -1168,17 +1173,5 @@ void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
             sem_post(&_PauseSem);
         }
     }
-    /*else{
-        int count = 0;
-        if( _VideoStream != -1 ){
-            count +=2;    
-        }
-        if( _AudioStream != -1 ){
-            count++;
-	} 
-        if( _SubtitleStream != -1 ){
-            count++;
-        }
-    }*/
     pthread_mutex_unlock(&_PauseMutex);
 }
