@@ -73,6 +73,7 @@ public:
     *orientation,播放方向,0前进，1后退
     */
     void SetPlaySpeed(PlaySpeed speed);
+    void VideoConvertYuvToRgb(AVFrame *yuv_frame,AVFrame *rgb_frame);
 protected:
     void VideoDecode();
     void PicShow();

@@ -20,7 +20,6 @@ Uint32 ShowPicEventType = -1;
 pthread_t       ShowPicThread;
 pthread_attr_t  ShowPicThreadAttr;
 pthread_mutex_t ShowPicCondMutex;
-pthread_cond_t  ShowPicCond;
 
 AVFrame* show_frame = NULL;
 void quit( int code )    
@@ -61,12 +60,12 @@ void handleKeyEvent( SDL_Keysym* keysym )
         quit( 0 );    
         break;    
     case SDLK_RIGHT:
-        player->Seek(300000,1,SEEK_CUR);
-        //player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(3000,0,SEEK_CUR);
+        player->SetPlaySpeed(ONE_FRAME_SPEED);
         break;
     case SDLK_LEFT:
-        player->Seek(3000,1,SEEK_CUR);
-        //player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(30,0,SEEK_CUR);
+        player->SetPlaySpeed(ONE_FRAME_SPEED);
         break;
     case SDLK_SPACE:
         static PlaySpeed speed = X1SPEED;
@@ -98,7 +97,7 @@ void handleEvents()
     static bool WindowCreated = false;
     if( WindowCreated == false ){
         while(!show_frame){
-            usleep(1);
+            usleep(1000);
         }
         CreateWindow();
         WindowCreated = true;
@@ -140,17 +139,16 @@ void handleEvents()
                 rect.y = 0;  
                 rect.w = show_frame->width;  
                 rect.h = show_frame->height;
-                /*printf("ShowPicEventType1 = %d,%d,%p,%d\n",rect.w,rect.h,
-                       show_frame,show_frame->linesize[0]);*/
+                pthread_mutex_lock(&ShowPicCondMutex);
+                printf("ShowPicEventType1 = %d,%d,%p,%d\n",rect.w,rect.h,
+                       show_frame,show_frame->linesize[0]);
     
                 SDL_UpdateTexture( bmp, &rect, show_frame->data[0], show_frame->linesize[0] );
+                pthread_mutex_unlock(&ShowPicCondMutex);
                 SDL_RenderClear( renderer );  
                 SDL_RenderCopy( renderer, bmp, &rect, &rect );  
                 SDL_RenderPresent( renderer );
             }
-            pthread_mutex_lock(&ShowPicCondMutex);
-            pthread_cond_signal(&ShowPicCond);
-            pthread_mutex_unlock(&ShowPicCondMutex);
            
         }    
     }    
@@ -168,7 +166,25 @@ void *ShowPicThreadRun(void* arg){
 
 void VideoPlay(void* prv_data,AVFrame* frame){
     //printf("VideoPlay\n");
-    show_frame = frame;
+    //show_frame = frame;
+    if( show_frame == NULL ){
+        show_frame = avcodec_alloc_frame();
+        
+        int RgbNumBytes = avpicture_get_size(AV_PIX_FMT_RGB24, 
+				  frame->width,
+				  frame->height);
+  
+        uint8_t* RgbBuffer = (uint8_t*)av_malloc(RgbNumBytes);
+
+        avpicture_fill( (AVPicture *)show_frame, RgbBuffer, AV_PIX_FMT_RGB24,
+                       frame->width, frame->height);
+    }
+        show_frame->width = frame->width;
+        show_frame->height = frame->height;
+        //show_frame->format = frame->format;
+        pthread_mutex_lock(&ShowPicCondMutex);
+        player->VideoConvertYuvToRgb(frame,show_frame);
+        pthread_mutex_unlock(&ShowPicCondMutex);
 
     if (ShowPicEventType != ((Uint32)-1)) {
         SDL_Event event;
@@ -178,10 +194,7 @@ void VideoPlay(void* prv_data,AVFrame* frame){
         event.user.data1 = 0;
         event.user.data2 = 0;
         SDL_PushEvent(&event);
-        //printf("ShowPicEventType2 = %d,%d\n",frame->linesize[0],show_frame->linesize[0]);
-        pthread_mutex_lock(&ShowPicCondMutex);
-        pthread_cond_wait(&ShowPicCond,&ShowPicCondMutex);
-        pthread_mutex_unlock(&ShowPicCondMutex);
+        printf("ShowPicEventType2 = %d,%d\n",frame->linesize[0],show_frame->linesize[0]);
     }
 
 }
@@ -243,7 +256,6 @@ int main(int argc,char* argv[]){
     av_register_all();
 
     pthread_mutex_init(&ShowPicCondMutex,NULL);
-    pthread_cond_init(&ShowPicCond,NULL);
 
     pthread_attr_init(&ShowPicThreadAttr);
     pthread_create(&ShowPicThread,&ShowPicThreadAttr,ShowPicThreadRun,NULL);

@@ -527,7 +527,7 @@ void DawnPlayer::PicShow(){
 
 	    
             //VideoConvertYuv(frame);
-            VideoConvertRgb(frame);
+            //VideoConvertRgb(frame);
 
             ///////////////////////////////////////////////////////
             //计算pts
@@ -594,9 +594,10 @@ void DawnPlayer::PicShow(){
 	    ////////////////////////////////////////////
 
             //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
-            _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
+            //_VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
             //SaveFrame(_FrameRgb, frame->width, frame->height, frame->pkt_dts);
 
+            _VideoCallBack(_VideoCallBackPrvData,frame);
 
         }
 
@@ -634,6 +635,29 @@ void DawnPlayer::VideoConvertRgb(AVFrame *src_frame){
 
   //printf("_FrameRgb->width = %d,_FrameRgb->height = %d\n",_FrameRgb->width,_FrameRgb->height);
   //printf("_FrameRgb->linesize[0] = %d\n",_FrameRgb->linesize[0]);
+}
+
+void DawnPlayer::VideoConvertYuvToRgb(AVFrame *yuv_frame,AVFrame *rgb_frame)
+{
+  _RgbConvertCtx = sws_getCachedContext(_RgbConvertCtx, 
+		yuv_frame->width,yuv_frame->height, 
+                (AVPixelFormat)yuv_frame->format,
+                 yuv_frame->width, yuv_frame->height,
+                 AV_PIX_FMT_RGB24, SWS_BICUBIC,
+                 NULL, NULL, NULL);
+
+  if( !_RgbConvertCtx ) {
+
+      fprintf(stderr, "Cannot initialize sws conversion context\n");
+
+      exit(1);
+
+      
+  }
+
+  sws_scale(_RgbConvertCtx, (const uint8_t* const*)yuv_frame->data,
+	      yuv_frame->linesize, 0, yuv_frame->height, 
+	      rgb_frame->data,rgb_frame->linesize);
 }
 
 void  DawnPlayer::VideoConvertYuv(AVFrame *src_frame)
@@ -737,7 +761,7 @@ void DawnPlayer::VideoDecode(){
          printf("frame->pkt_dts = %ld\n",frame->pkt_dts);
          printf("frame->key_frame = %d\n",frame->key_frame);
          printf("_FindKeyFrame = %d\n",_FindKeyFrame);
-         if( _SeekPos >= 0 ){
+         if( _SeekPos >= 0 ){//按照帧号跳转
              if( frame->pkt_dts < _SeekPos ){ 
                  if( frame->key_frame != 1 ){
                      //继续查找关键帧
@@ -1262,7 +1286,7 @@ void DawnPlayer::Seek(long offset,int offset_type,int whence){
     }
     switch(offset_type){
         case 0:
-            _SeekPos = offset*_FrameStepTime;
+            _SeekPos = offset*_FrameStepTime/1000;
             break;
         case 1:
             _SeekPos = offset;
