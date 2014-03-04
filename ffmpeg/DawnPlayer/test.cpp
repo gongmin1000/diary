@@ -61,12 +61,12 @@ void handleKeyEvent( SDL_Keysym* keysym )
         quit( 0 );    
         break;    
     case SDLK_RIGHT:
-        player->Seek(300,1,SEEK_CUR);
-        player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(300000,1,SEEK_CUR);
+        //player->SetPlaySpeed(ONE_FRAME_SPEED);
         break;
     case SDLK_LEFT:
-        player->Seek(-300,1,SEEK_CUR);
-        player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(3000,1,SEEK_CUR);
+        //player->SetPlaySpeed(ONE_FRAME_SPEED);
         break;
     case SDLK_SPACE:
         static PlaySpeed speed = X1SPEED;

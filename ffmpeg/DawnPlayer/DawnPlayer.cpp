@@ -60,7 +60,7 @@ DawnPlayer::DawnPlayer():
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
   _MaxPacketListLen(20),_VideoClock(0),_Fps(1000000),_FrameStepTime(40000),
-  _SeekPos(0),
+  _SeekPos(-1),_FindKeyFrame(true),_SeekTarget(-1),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -524,7 +524,6 @@ void DawnPlayer::PicShow(){
             printf("frame->pkt_pts = %ld\n",frame->pkt_pts);
             printf("frame->pkt_dts = %ld\n",frame->pkt_dts);
             printf("frame->key_frame = %d\n",frame->key_frame);
-            printf("_StartPlayTime = %f\n",_StartPlayTime);
 
 	    
             //VideoConvertYuv(frame);
@@ -596,7 +595,7 @@ void DawnPlayer::PicShow(){
 
             //_VideoCallBack(_VideoCallBackPrvData,_FrameYuv);
             _VideoCallBack(_VideoCallBackPrvData,_FrameRgb);
-            //SaveFrame(_FrameRgb, frame->width, frame->height, frame->pkt_pts);
+            //SaveFrame(_FrameRgb, frame->width, frame->height, frame->pkt_dts);
 
 
         }
@@ -732,7 +731,40 @@ void DawnPlayer::VideoDecode(){
       if( VideoFrameFinished ) {
          ///////////////////////////////////////////////////////
          //拷贝到free_frame
-
+         printf("_SeekPos = %ld\n",_SeekPos);
+         printf("_SeekTarget = %ld\n",_SeekTarget);
+         printf("frame->pts = %ld\n",frame->pts);
+         printf("frame->pkt_dts = %ld\n",frame->pkt_dts);
+         printf("frame->key_frame = %d\n",frame->key_frame);
+         printf("_FindKeyFrame = %d\n",_FindKeyFrame);
+         if( _SeekPos >= 0 ){
+             if( frame->pkt_dts < _SeekPos ){ 
+                 if( frame->key_frame != 1 ){
+                     //继续查找关键帧
+                     continue;
+                 }
+                 else{
+                     //准备显示查找目标帧
+                     _FindKeyFrame = true;
+                     _SeekTarget = -1;
+                     continue;
+                 }
+             }
+             else{
+                 if( !_FindKeyFrame ){
+                     _SeekTarget = _PreSeekTarget - 
+                                        av_rescale_q(AV_TIME_BASE, AV_TIME_BASE_Q, 
+                                              _FormatCtx->streams[_VideoStream]->time_base);
+                     if( _SeekTarget < 0 ){
+                         _SeekTarget = 0;
+                     }
+                     continue;
+                 }
+                 else{
+                     _SeekPos = -1;
+                 }
+             }
+         }
          av_picture_copy((AVPicture *)free_frame,(const AVPicture *)frame,
                          (AVPixelFormat)frame->format, frame->width, frame->height);
          free_frame->format = frame->format;
@@ -741,7 +773,6 @@ void DawnPlayer::VideoDecode(){
          free_frame->pkt_dts = frame->pkt_dts;
          free_frame->pts = frame->pts;
          free_frame->key_frame = frame->key_frame;
-
 	 ////////////////////////////////////////////
 
          pthread_mutex_lock(&_ShowFrameListMutex);
@@ -944,7 +975,7 @@ void DawnPlayer::AudioDecode(){
          AudioPts();
    
          //printf("_PlaySpeed = %d\n",_PlaySpeed); 
-         if( !_AudioCallBack || _PlaySpeed != X1SPEED ){
+         if( !_AudioCallBack || _PlaySpeed != X1SPEED || _SeekPos >= 0 ){
             printf("!_AudioCallBack\n");
          }
          else{
@@ -1021,8 +1052,11 @@ void DawnPlayer::ReadPacket(){
       printf("v = %ld\n",_VideoPacketList.size());
       printf("f = %ld\n",_FreeFrameList.size());
       printf("s = %ld\n",_ShowFrameList.size());*/
-      if( _SeekPos != 0 ){
+      //if( _ContinueSeek ){
+      if( _SeekTarget >= 0 ){
+          _PreSeekTarget = _SeekTarget;
           DoSeek();
+          _SeekTarget = -1;
       }
       /*printf("a = %ld\n",_AudioPacketList.size());
       printf("v = %ld\n",_VideoPacketList.size());
@@ -1182,38 +1216,32 @@ void DawnPlayer::ClearAllList(){
 void DawnPlayer::DoSeek(){
     int seek_flags;
     printf("DoSeek\n");
-    if(_SeekPos == 0 ){
+    if(_SeekTarget  < 0 ){
         return;
     }
     PlaySpeed speed = _PlaySpeed;
     _PlaySpeed = PAUSE;
     ClearAllList();
     printf("DoSeek1\n");
-    if( _SeekPos > 0 ){
+    if( _SeekTarget >= 0 ){
         seek_flags = 0;
     }
     else{
         seek_flags = AVSEEK_FLAG_BACKWARD;
     }
-    _SeekPos *= AV_TIME_BASE;
-    _SeekPos += _FormatCtx->start_time;
     pthread_mutex_lock(&_FormatCtxMutex);
     if( _VideoStream != -1 ){
-        _SeekPos = av_rescale_q(_SeekPos, AV_TIME_BASE_Q, 
-                                _FormatCtx->streams[_VideoStream]->time_base);
-        printf("_SeekPos = %ld\n",_SeekPos);
-        if( av_seek_frame(_FormatCtx,_VideoStream,_SeekPos,seek_flags) < 0 ){
+        printf("_SeekTarget = %ld\n",_SeekTarget);
+        if( av_seek_frame(_FormatCtx,_VideoStream,_SeekTarget,seek_flags) < 0 ){
             printf("%s: error while seeking\n",_FormatCtx->filename);
         }
-        //avformat_seek_file(_FormatCtx,_VideoStream,0, _SeekPos, 0xfffffffffff, AVSEEK_FLAG_FRAME);
+        //avformat_seek_file(_FormatCtx,_VideoStream,0, _SeekTarget, 0xfffffffffff, AVSEEK_FLAG_FRAME);
     }
     else if( _AudioStream != -1 ){
-        _SeekPos = av_rescale_q(_SeekPos, AV_TIME_BASE_Q, 
-                                _FormatCtx->streams[_AudioStream]->time_base);
-        av_seek_frame(_FormatCtx,_AudioStream,_SeekPos,seek_flags);
+        av_seek_frame(_FormatCtx,_AudioStream,_SeekTarget,seek_flags);
     } 
-    //avformat_seek_file(_FormatCtx,-1,0, offset, 0xfffffffffff, AVSEEK_FLAG_FRAME);
     pthread_mutex_unlock(&_FormatCtxMutex);
+
     if( _VideoStream != -1 ){
         avcodec_flush_buffers(_VideoCodecCtx);
     }
@@ -1223,17 +1251,18 @@ void DawnPlayer::DoSeek(){
     if( _SubtitleStream != -1 ){
         avcodec_flush_buffers(_SubtitleCodecCtx);
     }
-    _SeekPos = 0;
     _PlaySpeed = speed;
     printf("DoSeek2\n");
 }
 
 
 void DawnPlayer::Seek(long offset,int offset_type,int whence){
-
+    if( _SeekPos != -1 ){
+        return ;
+    }
     switch(offset_type){
         case 0:
-            _SeekPos = _SeekPos*_FrameStepTime;
+            _SeekPos = offset*_FrameStepTime;
             break;
         case 1:
             _SeekPos = offset;
@@ -1241,6 +1270,24 @@ void DawnPlayer::Seek(long offset,int offset_type,int whence){
         default:
 	    break;
     }
+    
+    //_SeekPos *= AV_TIME_BASE;
+    _SeekPos *= 1000;
+    pthread_mutex_lock(&_FormatCtxMutex);
+    _SeekPos += _FormatCtx->start_time;
+    if( _VideoStream != -1 ){
+        _SeekPos = av_rescale_q(_SeekPos, AV_TIME_BASE_Q, 
+                                _FormatCtx->streams[_VideoStream]->time_base);
+    }
+    else if( _AudioStream != -1 ){
+        _SeekPos = av_rescale_q(_SeekPos, AV_TIME_BASE_Q, 
+                                _FormatCtx->streams[_AudioStream]->time_base);
+    }
+    pthread_mutex_unlock(&_FormatCtxMutex);
+
+    _FindKeyFrame = false;
+    _SeekTarget = _SeekPos; 
+    printf("_SeekPos = %ld\n",_SeekPos);
     printf("Seek\n");
 }
 

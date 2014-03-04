@@ -107,7 +107,10 @@ private:
     //播放跳转
     bool            _ClearAllList;
     void ClearAllList();
-    uint64_t        _SeekPos;
+    int64_t        _SeekPos;
+    int64_t        _SeekTarget;
+    int64_t        _PreSeekTarget;
+    bool           _FindKeyFrame;
     void DoSeek();
     bool            _PlayerStop;
 
