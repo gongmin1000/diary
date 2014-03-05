@@ -65,14 +65,15 @@ public:
     /*
     *offset_type,跳转类型，0为按帧，1为按ms
     *offset,跳转量
-    *whence，跳转方向,SEEK_SET, SEEK_CUR,  SEEK_END
+    *pause,跳转完是否暂停
     */
-    void Seek(long offset,int offset_type,int whence);
+    void Seek(long offset,int offset_type, bool pause);
     /*
     *speed,播放速度
     *orientation,播放方向,0前进，1后退
     */
     void SetPlaySpeed(PlaySpeed speed);
+    PlaySpeed GetPlaySpeed();
     void VideoConvertYuvToRgb(AVFrame *yuv_frame,AVFrame *rgb_frame);
 protected:
     void VideoDecode();
@@ -85,22 +86,6 @@ private:
     //////////////////////////////////////////////////
     //播放控制
     ///////////////////////////////////////////////////
-    //暂停数据包读取
-    /*pthread_mutex_t _ReadPacketThreadPauseCondMutex;
-    pthread_cond_t  _ReadPacketThreadPauseCond;
-    //暂停视频解码
-    pthread_mutex_t _VideoThreadPauseCondMutex;
-    pthread_cond_t  _VideoThreadPauseCond;*/
-    //暂停显示
-    /*pthread_mutex_t _ShowPicThreadPauseCondMutex;
-    pthread_cond_t  _ShowPicThreadPauseCond;
-    //暂停音频解码
-    pthread_mutex_t _AudioThreadPauseCondMutex;
-    pthread_cond_t  _AudioThreadPauseCond;
-    //暂停字幕
-    pthread_mutex_t _SubThreadPauseCondMutex;
-    pthread_cond_t  _SubThreadPauseCond;*/
-
     //暂停播放器
     pthread_mutex_t _PauseMutex;
     PlaySpeed       _PlaySpeed;
@@ -112,14 +97,14 @@ private:
     int64_t        _SeekTarget;
     int64_t        _PreSeekTarget;
     bool           _FindKeyFrame;
+    bool           _SeekFinishPlayerPause;
     void DoSeek();
-    bool            _PlayerStop;
-
     //单步播放
     pthread_mutex_t _OneFramePlayCondMutex;
     pthread_cond_t  _OneFramePlayCond;
     
-
+    //播放器是否退出
+    bool            _PlayerStop;
 
     //////////////////////////////////////////////////
     //

@@ -60,23 +60,17 @@ void handleKeyEvent( SDL_Keysym* keysym )
         quit( 0 );    
         break;    
     case SDLK_RIGHT:
-        player->Seek(3000,0,SEEK_CUR);
-        player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(3000,0,true);
         break;
     case SDLK_LEFT:
-        player->Seek(30,0,SEEK_CUR);
-        player->SetPlaySpeed(ONE_FRAME_SPEED);
+        player->Seek(30,0,false);
         break;
     case SDLK_SPACE:
-        static PlaySpeed speed = X1SPEED;
-        std::cout<<"Space"<<std::endl;  
-        if( speed == X1SPEED ){
+        if( player->GetPlaySpeed() == X1SPEED ){
             player->SetPlaySpeed(PAUSE);
-            speed = PAUSE;
         }
         else{
             player->SetPlaySpeed(X1SPEED);
-            speed = X1SPEED;
         }
         
         break;

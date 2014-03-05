@@ -786,6 +786,9 @@ void DawnPlayer::VideoDecode(){
                  }
                  else{
                      _SeekPos = -1;
+                     if( _SeekFinishPlayerPause ){
+                         _PlaySpeed = PAUSE;
+                     }
                  }
              }
          }
@@ -1280,10 +1283,14 @@ void DawnPlayer::DoSeek(){
 }
 
 
-void DawnPlayer::Seek(long offset,int offset_type,int whence){
+void DawnPlayer::Seek(long offset,int offset_type,bool pause){
     if( _SeekPos != -1 ){
         return ;
     }
+    if( _PlaySpeed == PAUSE ){
+        SetPlaySpeed(X1SPEED);
+    }
+    _SeekFinishPlayerPause = pause;
     switch(offset_type){
         case 0:
             _SeekPos = offset*_FrameStepTime/1000;
@@ -1314,6 +1321,11 @@ void DawnPlayer::Seek(long offset,int offset_type,int whence){
     printf("_SeekPos = %ld\n",_SeekPos);
     printf("Seek\n");
 }
+
+PlaySpeed DawnPlayer::GetPlaySpeed(){
+    return _PlaySpeed;
+}
+
 
 void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
     pthread_mutex_lock(&_PauseMutex);
