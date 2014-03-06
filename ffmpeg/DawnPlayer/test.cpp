@@ -134,8 +134,8 @@ void handleEvents()
                 rect.w = show_frame->width;  
                 rect.h = show_frame->height;
                 pthread_mutex_lock(&ShowPicCondMutex);
-                printf("ShowPicEventType1 = %d,%d,%p,%d\n",rect.w,rect.h,
-                       show_frame,show_frame->linesize[0]);
+                /*printf("ShowPicEventType1 = %d,%d,%p,%d\n",rect.w,rect.h,
+                       show_frame,show_frame->linesize[0]);*/
     
                 SDL_UpdateTexture( bmp, &rect, show_frame->data[0], show_frame->linesize[0] );
                 pthread_mutex_unlock(&ShowPicCondMutex);
@@ -188,7 +188,7 @@ void VideoPlay(void* prv_data,AVFrame* frame){
         event.user.data1 = 0;
         event.user.data2 = 0;
         SDL_PushEvent(&event);
-        printf("ShowPicEventType2 = %d,%d\n",frame->linesize[0],show_frame->linesize[0]);
+        //printf("ShowPicEventType2 = %d,%d\n",frame->linesize[0],show_frame->linesize[0]);
     }
 
 }

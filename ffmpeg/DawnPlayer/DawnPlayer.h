@@ -89,9 +89,9 @@ private:
     //暂停播放器
     pthread_mutex_t _PauseMutex;
     PlaySpeed       _PlaySpeed;
+    bool            _PauseNextOneFramePlay;
 
     //播放跳转
-    bool            _ClearAllList;
     void ClearAllList();
     int64_t        _SeekPos;
     int64_t        _SeekTarget;

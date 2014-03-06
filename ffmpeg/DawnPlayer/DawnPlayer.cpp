@@ -60,7 +60,7 @@ DawnPlayer::DawnPlayer():
   _AudioCallBack(NULL),_AudioCallBackPrvData(NULL),
   _VideoCallBack(NULL),_VideoCallBackPrvData(NULL),
   _MaxPacketListLen(20),_VideoClock(0),_Fps(1000000),_FrameStepTime(40000),
-  _SeekPos(-1),_FindKeyFrame(true),_SeekTarget(-1),
+  _SeekPos(-1),_FindKeyFrame(true),_SeekTarget(-1),_PauseNextOneFramePlay(false),
   vframe_index(0),aframe_index(0),sframe_index(0){
 
     
@@ -479,12 +479,15 @@ void DawnPlayer::PicShow(){
         return ;
     }
     while(!_PlayerStop){
-        if( _PlaySpeed == ONE_FRAME_SPEED ){
+        if( (_PauseNextOneFramePlay == false ) && (_PlaySpeed == ONE_FRAME_SPEED) ){
             _PicShowThreadStop = true;
             pthread_mutex_lock(&_OneFramePlayCondMutex);
             pthread_cond_wait(&_OneFramePlayCond,&_OneFramePlayCondMutex);
             pthread_mutex_unlock(&_OneFramePlayCondMutex);
             _PicShowThreadStop = false;
+        }
+        else{
+            _PauseNextOneFramePlay = false;
         }
         pthread_mutex_lock(&_ShowFrameListMutex);
         //printf("_ShowFrameList.size  = %ld\n",_ShowFrameList.size());
@@ -516,7 +519,7 @@ void DawnPlayer::PicShow(){
         //显示视频
         vframe_index++;
         if( _VideoCallBack ){
-            printf("VideoCallBack\n");
+            /*printf("VideoCallBack\n");
             printf("frame->width = %d,frame->height = %d\n",frame->width,frame->height);
 	   
             printf("frame->format = %d\n",frame->format);
@@ -524,7 +527,7 @@ void DawnPlayer::PicShow(){
             printf("frame->pkt_pts = %ld\n",frame->pkt_pts);
             printf("frame->pkt_dts = %ld\n",frame->pkt_dts);
             printf("frame->key_frame = %d\n",frame->key_frame);
-
+            */
 	    
             //VideoConvertYuv(frame);
             //VideoConvertRgb(frame);
@@ -740,11 +743,6 @@ void DawnPlayer::VideoDecode(){
 
       //////////////////////////////////////////////////////////
       //解码
-      if( _ClearAllList == true ){
-          //av_frame_unref(frame);
-          _ClearAllList = false;
-      }
-
       avcodec_get_frame_defaults(frame);
       ret = avcodec_decode_video2(_VideoCodecCtx, frame, &VideoFrameFinished, &packet);
       if( ret < 0 ){
@@ -755,12 +753,12 @@ void DawnPlayer::VideoDecode(){
       if( VideoFrameFinished ) {
          ///////////////////////////////////////////////////////
          //拷贝到free_frame
-         printf("_SeekPos = %ld\n",_SeekPos);
+         /*printf("_SeekPos = %ld\n",_SeekPos);
          printf("_SeekTarget = %ld\n",_SeekTarget);
          printf("frame->pts = %ld\n",frame->pts);
          printf("frame->pkt_dts = %ld\n",frame->pkt_dts);
          printf("frame->key_frame = %d\n",frame->key_frame);
-         printf("_FindKeyFrame = %d\n",_FindKeyFrame);
+         printf("_FindKeyFrame = %d\n",_FindKeyFrame);*/
          if( _SeekPos >= 0 ){//按照帧号跳转
              if( frame->pkt_dts < _SeekPos ){ 
                  if( frame->key_frame != 1 ){
@@ -1177,7 +1175,6 @@ void DawnPlayer::ReadPacket(){
 void DawnPlayer::ClearAllList(){
     ////////////////////////////////////////////////////
     //等待所有线程停止，并清空缓冲，准备跳转
-    _ClearAllList = true;
     if( _VideoStream != -1 ){
         while( !_VideoThreadStop ){
             printf("ClearAllList0:0\n");
@@ -1287,7 +1284,8 @@ void DawnPlayer::Seek(long offset,int offset_type,bool pause){
     if( _SeekPos != -1 ){
         return ;
     }
-    if( _PlaySpeed == PAUSE ){
+    if( (_PlaySpeed == PAUSE) ||
+        (_PlaySpeed == ONE_FRAME_SPEED) ){
         SetPlaySpeed(X1SPEED);
     }
     _SeekFinishPlayerPause = pause;
@@ -1329,8 +1327,17 @@ PlaySpeed DawnPlayer::GetPlaySpeed(){
 
 void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
     pthread_mutex_lock(&_PauseMutex);
-    if( ( (_PlaySpeed == PAUSE) && (speed != PAUSE) ) ){
+    printf("_PlaySpeed = %d,speed = %d\n",_PlaySpeed,speed);
+    if( ( _PlaySpeed == PAUSE ) && ( speed == ONE_FRAME_SPEED ) ){
+        _PauseNextOneFramePlay = true;
+    }
+    _PlaySpeed = speed;
+    if( speed != PAUSE ){
         if( _VideoStream != -1 ){
+            pthread_mutex_lock(&_OneFramePlayCondMutex);
+            pthread_cond_signal(&_OneFramePlayCond);
+            pthread_mutex_unlock(&_OneFramePlayCondMutex);
+
             pthread_mutex_lock(&_PicShowThreadCondMutex);
             pthread_cond_signal(&_PicShowThreadCond);
             pthread_mutex_unlock(&_PicShowThreadCondMutex);
@@ -1338,10 +1345,6 @@ void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
             pthread_mutex_lock(&_VideoThreadCondMutex);
             pthread_cond_signal(&_VideoThreadCond);
             pthread_mutex_unlock(&_VideoThreadCondMutex);
-
-            pthread_mutex_lock(&_OneFramePlayCondMutex);
-            pthread_cond_signal(&_OneFramePlayCond);
-            pthread_mutex_unlock(&_OneFramePlayCondMutex);
         }
         if( _AudioStream != -1 ){
             pthread_mutex_lock(&_AudioThreadCondMutex);
@@ -1354,11 +1357,10 @@ void DawnPlayer::SetPlaySpeed(PlaySpeed speed){
             pthread_mutex_unlock(&_SubThreadCondMutex);
         }
     }
-    if( (_PlaySpeed == ONE_FRAME_SPEED) && (speed == ONE_FRAME_SPEED) ){
-            pthread_mutex_lock(&_OneFramePlayCondMutex);
-            pthread_cond_signal(&_OneFramePlayCond);
-            pthread_mutex_unlock(&_OneFramePlayCondMutex);
+    if( (speed == ONE_FRAME_SPEED) ){
+        pthread_mutex_lock(&_OneFramePlayCondMutex);
+        pthread_cond_signal(&_OneFramePlayCond);
+        pthread_mutex_unlock(&_OneFramePlayCondMutex);
     } 
-    _PlaySpeed = speed;
     pthread_mutex_unlock(&_PauseMutex);
 }
