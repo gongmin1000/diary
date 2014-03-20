@@ -1,0 +1,21 @@
+x64:
+./configure --prefix=/home/dongrui/program/opus --enable-custom-modes --enable-float-approx --enable-fuzzing
+
+
+arm:
+export PATH=$PATH:/home/dongrui/android/android-ndk-r9d/toolchains/arm-linux-androideabi-4.8/prebuilt/linux-x86_64/bin
+
+export CC=arm-linux-androideabi-gcc
+export CPP=arm-linux-androideabi-g++
+export CFLAGS="-march=armv7-a --sysroot=/home/dongrui/android/android-ndk-r9d/platforms/android-19/arch-arm/ -I/home/dongrui/android/android-ndk-r9d/platforms/android-19/arch-arm/usr/include"
+export LDFLAGS="-L/home/dongrui/android/android-ndk-r9d/platforms/android-19/arch-arm/usr/lib -L/home/dongrui/android/android-ndk-r9d/toolchains/arm-linux-androideabi-4.8/prebuilt/linux-x86_64/lib/gcc/arm-linux-androideabi/4.8/"
+export LIBS="-lc -lm -lgcc"
+
+
+CPPFLAGS    (Objective) C/C++ preprocessor flags, e.g. -I<include dir> if
+              you have headers in a nonstandard directory <include dir>
+  
+  CCAS        assembler compiler command (defaults to CC)
+  CCASFLAGS
+
+./configure --enable-cross-compile     --with-sysroot=/home/dongrui/android/android-ndk-r9d/platforms/android-19/arch-arm  --with-gnu-ld=arm-linux-androideabi-ld --host --host-alias
